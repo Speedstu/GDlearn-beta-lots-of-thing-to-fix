@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>GD-ML-Bot Visualizer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a12;
+    color: #e0e0ff;
+    font-family: 'Segoe UI', monospace;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #header {
+    background: linear-gradient(90deg, #1a0a2e, #0d1a3a);
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    border-bottom: 2px solid #4a2080;
+    flex-shrink: 0;
+  }
+  #header h1 { font-size: 1.1rem; color: #b080ff; letter-spacing: 2px; text-transform: uppercase; }
+  #status-dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: background 0.3s; }
+  #status-dot.live { background: #40ff80; box-shadow: 0 0 8px #40ff80; }
+  #status-dot.dead { background: #ff4040; box-shadow: 0 0 8px #ff4040; }
+  #level-badge {
+    background: #2a1a4a; border: 1px solid #6030c0; border-radius: 4px;
+    padding: 2px 10px; font-size: 0.85rem; color: #c090ff;
+  }
+  #mode-badge {
+    background: #0a2a1a; border: 1px solid #20a060; border-radius: 4px;
+    padding: 2px 10px; font-size: 0.85rem; color: #60ffa0;
+  }
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+    background: #06060f;
+    border-right: 2px solid #1a1a3a;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  #sidebar {
+    width: 240px;
+    background: #080814;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .card {
+    background: #0e0e22;
+    border: 1px solid #1e1e40;
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .card-title {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #5060a0;
+    margin-bottom: 6px;
+  }
+  .stat-row { display: flex; justify-content: space-between; align-items: baseline; margin: 3px 0; }
+  .stat-label { font-size: 0.75rem; color: #7080b0; }
+  .stat-value { font-size: 0.9rem; font-weight: 600; color: #c0d0ff; }
+  .stat-value.good { color: #40ff80; }
+  .stat-value.warn { color: #ffb040; }
+  .stat-value.bad  { color: #ff5050; }
+  .bar-wrap { background: #111128; border-radius: 3px; height: 8px; overflow: hidden; margin-top: 2px; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  .bar-progress { background: linear-gradient(90deg, #3050ff, #80a0ff); }
+  .bar-best    { background: linear-gradient(90deg, #20c060, #80ff40); }
+  .bar-entropy { background: linear-gradient(90deg, #a040ff, #e080ff); }
+  #progress-wrap { padding: 0 18px 10px; flex-shrink: 0; }
+  #progress-label { display: flex; justify-content: space-between; font-size: 0.72rem; color: #5060a0; margin-bottom: 4px; }
+  #progress-bar-outer { background: #111128; border-radius: 4px; height: 14px; overflow: hidden; position: relative; }
+  #progress-bar-fill {
+    height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, #3050ff, #80a0ff, #c0e0ff);
+    transition: width 0.2s;
+    position: relative;
+  }
+  #progress-bar-fill::after {
+    content: '';
+    position: absolute; right: 0; top: 0; bottom: 0; width: 3px;
+    background: white; box-shadow: 0 0 6px white;
+  }
+  #best-marker {
+    position: absolute; top: 0; bottom: 0; width: 2px;
+    background: #40ff80; box-shadow: 0 0 4px #40ff80;
+    transition: left 0.3s;
+  }
+  #fps-counter { position: absolute; top: 6px; right: 8px; font-size: 0.7rem; color: #304060; }
+  #err-msg {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    text-align: center; color: #405080;
+  }
+  #err-msg p { margin: 4px 0; font-size: 0.9rem; }
+  .consecutive-pip {
+    display: inline-block; width: 16px; height: 16px; border-radius: 3px;
+    margin: 1px; background: #1a1a3a; border: 1px solid #2a2a5a;
+  }
+  .consecutive-pip.filled { background: #40c060; border-color: #40ff80; box-shadow: 0 0 4px #40ff80; }
+</style>
+</head>
+<body>
+<div id="header">
+  <span id="status-dot"></span>
+  <h1>GD-ML-Bot</h1>
+  <span id="level-badge">—</span>
+  <span id="mode-badge">—</span>
+  <span style="margin-left:auto;font-size:0.75rem;color:#405080;" id="last-update">Waiting...</span>
+</div>
+<div id="main">
+  <div id="canvas-wrap">
+    <canvas id="gc"></canvas>
+    <span id="fps-counter">— fps</span>
+    <div id="err-msg">
+      <p style="font-size:2rem">👾</p>
+      <p>Waiting for training data...</p>
+      <p style="font-size:0.75rem;margin-top:8px">Launch <b>train_fast.bat</b> then open this file</p>
+    </div>
+  </div>
+  <div id="sidebar">
+    <div class="card">
+      <div class="card-title">Progress</div>
+      <div class="stat-row"><span class="stat-label">Current</span><span class="stat-value" id="s-pct">—</span></div>
+      <div class="bar-wrap"><div class="bar-fill bar-progress" id="b-pct" style="width:0%"></div></div>
+      <div class="stat-row" style="margin-top:6px"><span class="stat-label">Best ever</span><span class="stat-value good" id="s-best">—</span></div>
+      <div class="bar-wrap"><div class="bar-fill bar-best" id="b-best" style="width:0%"></div></div>
+      <div class="stat-row" style="margin-top:6px"><span class="stat-label">Avg (50ep)</span><span class="stat-value" id="s-avg">—</span></div>
+      <div class="bar-wrap"><div class="bar-fill bar-progress" id="b-avg" style="width:0%;opacity:0.5"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Training</div>
+      <div class="stat-row"><span class="stat-label">Episodes</span><span class="stat-value" id="s-ep">—</span></div>
+      <div class="stat-row"><span class="stat-label">Total Steps</span><span class="stat-value" id="s-steps">—</span></div>
+      <div class="stat-row"><span class="stat-label">Updates</span><span class="stat-value" id="s-upd">—</span></div>
+      <div class="stat-row"><span class="stat-label">Steps/s</span><span class="stat-value good" id="s-sps">—</span></div>
+      <div class="stat-row"><span class="stat-label">Click %</span><span class="stat-value" id="s-clk">—</span></div>
+      <div class="stat-row"><span class="stat-label">Levels Done</span><span class="stat-value" id="s-lvl">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Losses</div>
+      <div class="stat-row"><span class="stat-label">Policy</span><span class="stat-value" id="s-pl">—</span></div>
+      <div class="stat-row"><span class="stat-label">Value</span><span class="stat-value" id="s-vl">—</span></div>
+      <div class="stat-row"><span class="stat-label">Entropy</span><span class="stat-value" id="s-en">—</span></div>
+      <div class="bar-wrap"><div class="bar-fill bar-entropy" id="b-en" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Level Completion (3x needed)</div>
+      <div id="pips-wrap" style="margin-top:4px">
+        <span class="consecutive-pip" id="pip0"></span>
+        <span class="consecutive-pip" id="pip1"></span>
+        <span class="consecutive-pip" id="pip2"></span>
+      </div>
+      <div style="font-size:0.7rem;color:#405080;margin-top:6px" id="s-consec">0 / 3</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Player</div>
+      <div class="stat-row"><span class="stat-label">Mode</span><span class="stat-value" id="s-mode">—</span></div>
+      <div class="stat-row"><span class="stat-label">Y Pos</span><span class="stat-value" id="s-y">—</span></div>
+      <div class="stat-row"><span class="stat-label">Gravity</span><span class="stat-value" id="s-grav">—</span></div>
+      <div class="stat-row"><span class="stat-label">Reward</span><span class="stat-value" id="s-rew">—</span></div>
+      <div class="stat-row"><span class="stat-label">Value Est.</span><span class="stat-value" id="s-val">—</span></div>
+    </div>
+  </div>
+</div>
+<div id="progress-wrap">
+  <div id="progress-label">
+    <span>Level Progress</span>
+    <span id="prog-pct-label">0%</span>
+  </div>
+  <div id="progress-bar-outer">
+    <div id="progress-bar-fill" style="width:0%"></div>
+    <div id="best-marker" style="left:0%"></div>
+  </div>
+</div>
+
+<script>
+const MODES = ['Cube','Ship','Ball','UFO','Wave','Robot','Spider','Swing'];
+const MODE_COLORS = ['#80a0ff','#ff8040','#40c0ff','#c040ff','#40ff80','#ff4080','#ffb020','#20d0ff'];
+const GD_BG = '#1a1a2e';
+const GD_GROUND = '#2a2a4a';
+const GD_BLOCK = '#4060c0';
+const GD_SPIKE = '#ff4040';
+const GD_GRID = 'rgba(255,255,255,0.03)';
+
+let state = null;
+let lastFetch = 0;
+let frameCount = 0;
+let fpsTime = 0;
+let fpsDisp = 0;
+let trailHistory = [];
+let progressHistory = [];
+let animFrame = 0;
+
+const canvas = document.getElementById('gc');
+const ctx = canvas.getContext('2d');
+const errMsg = document.getElementById('err-msg');
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap');
+  canvas.width = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Fetch state.json from local server ---
+async function fetchState() {
+  try {
+    const r = await fetch('state.json?t=' + Date.now(), {cache:'no-store'});
+    if (!r.ok) return;
+    const data = await r.json();
+    state = data;
+    lastFetch = Date.now();
+    errMsg.style.display = 'none';
+    updateSidebar();
+  } catch(e) {
+    // server not ready yet
+  }
+}
+
+function fmt(n, dec=2) { return (typeof n === 'number') ? n.toFixed(dec) : '—'; }
+function fmtK(n) {
+  if (n >= 1e6) return (n/1e6).toFixed(2)+'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1)+'k';
+  return ''+n;
+}
+
+function updateSidebar() {
+  if (!state) return;
+  const s = state;
+
+  // Header
+  document.getElementById('level-badge').textContent = s.levelName || '—';
+  document.getElementById('mode-badge').textContent = MODES[s.gameMode] || 'Cube';
+  document.getElementById('last-update').textContent = 'Live ✓';
+
+  const dot = document.getElementById('status-dot');
+  dot.className = 'status-dot ' + (s.isDead ? 'dead' : 'live');
+
+  // Progress
+  const pct = s.percent || 0;
+  const best = s.bestProgress || 0;
+  const avg = s.avgProgress || 0;
+  document.getElementById('s-pct').textContent = pct.toFixed(1) + '%';
+  document.getElementById('b-pct').style.width = Math.min(pct,100) + '%';
+  document.getElementById('s-best').textContent = best.toFixed(1) + '%';
+  document.getElementById('b-best').style.width = Math.min(best,100) + '%';
+  document.getElementById('s-avg').textContent = avg.toFixed(1) + '%';
+  document.getElementById('b-avg').style.width = Math.min(avg,100) + '%';
+
+  // Bottom bar
+  document.getElementById('progress-bar-fill').style.width = Math.min(pct,100) + '%';
+  document.getElementById('best-marker').style.left = Math.min(best,100) + '%';
+  document.getElementById('prog-pct-label').textContent = pct.toFixed(1) + '%';
+
+  // Training
+  document.getElementById('s-ep').textContent = s.episode || 0;
+  document.getElementById('s-steps').textContent = fmtK(s.totalSteps || 0);
+  document.getElementById('s-upd').textContent = s.updates || 0;
+  document.getElementById('s-sps').textContent = Math.round(s.stepsPerSec || 0);
+  document.getElementById('s-clk').textContent = (s.clickPct || 0) + '%';
+  document.getElementById('s-lvl').textContent = s.levelsCompleted || 0;
+
+  // Losses
+  document.getElementById('s-pl').textContent = fmt(s.policyLoss, 5);
+  document.getElementById('s-vl').textContent = fmt(s.valueLoss, 4);
+  document.getElementById('s-en').textContent = fmt(s.entropy, 4);
+  const entNorm = Math.min((s.entropy || 0) / 1.0 * 100, 100);
+  document.getElementById('b-en').style.width = entNorm + '%';
+
+  // Consecutive pips
+  const cons = s.consecutiveCompletions || 0;
+  for (let i = 0; i < 3; i++) {
+    document.getElementById('pip'+i).className = 'consecutive-pip' + (i < cons ? ' filled' : '');
+  }
+  document.getElementById('s-consec').textContent = cons + ' / 3';
+
+  // Player
+  document.getElementById('s-mode').textContent = MODES[s.gameMode] || 'Cube';
+  document.getElementById('s-y').textContent = fmt(s.py, 1);
+  document.getElementById('s-grav').textContent = s.gravFlipped ? '🔻 Flipped' : '🔺 Normal';
+  document.getElementById('s-rew').textContent = fmt(s.reward, 4);
+  document.getElementById('s-val').textContent = fmt(s.value, 3);
+
+  // Trail history for canvas
+  if (s.trail) trailHistory = s.trail;
+
+  // Progress history for mini graph
+  progressHistory.push(pct);
+  if (progressHistory.length > 200) progressHistory.shift();
+}
+
+// --- Canvas rendering ---
+function drawCanvas() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = GD_BG;
+  ctx.fillRect(0, 0, W, H);
+
+  if (!state) {
+    drawNoData(W, H);
+    return;
+  }
+
+  // Grid
+  const BLOCK = 40;
+  ctx.strokeStyle = GD_GRID;
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += BLOCK) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += BLOCK) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Ground
+  const groundY = H - 60;
+  ctx.fillStyle = GD_GROUND;
+  ctx.fillRect(0, groundY, W, 60);
+  ctx.fillStyle = '#3a3a6a';
+  ctx.fillRect(0, groundY, W, 4);
+
+  // Ceiling
+  ctx.fillStyle = GD_GROUND;
+  ctx.fillRect(0, 0, W, 20);
+  ctx.fillStyle = '#3a3a6a';
+  ctx.fillRect(0, 16, W, 4);
+
+  // Player world coords → screen coords
+  // We center the player at ~30% from left
+  const px = state.px || 0;
+  const py = state.py || 0;
+  const camX = px - W * 0.3;
+  // Y: GD units. Ground ~= GROUND_Y (15). Scale: ~40px per block (30 units)
+  const SCALE = 40 / 30;
+  const worldToScreen = (wx, wy) => {
+    const sx = (wx - camX) * SCALE;
+    // Flip Y: GD 0 = ground, up = positive
+    const sy = groundY - (wy - 15) * SCALE;
+    return [sx, sy];
+  };
+
+  // Draw trail
+  if (trailHistory.length > 1) {
+    ctx.beginPath();
+    const [tx0, ty0] = worldToScreen(trailHistory[0][0], trailHistory[0][1]);
+    ctx.moveTo(tx0, ty0);
+    for (let i = 1; i < trailHistory.length; i++) {
+      const [tx, ty] = worldToScreen(trailHistory[i][0], trailHistory[i][1]);
+      ctx.lineTo(tx, ty);
+    }
+    const modeColor = MODE_COLORS[state.gameMode] || '#80a0ff';
+    ctx.strokeStyle = modeColor + '60';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Trail dots with fade
+    for (let i = 0; i < trailHistory.length; i++) {
+      const alpha = i / trailHistory.length;
+      const [tx, ty] = worldToScreen(trailHistory[i][0], trailHistory[i][1]);
+      ctx.beginPath();
+      ctx.arc(tx, ty, 2, 0, Math.PI*2);
+      ctx.fillStyle = modeColor + Math.floor(alpha * 160).toString(16).padStart(2,'0');
+      ctx.fill();
+    }
+  }
+
+  // Draw player
+  const [spx, spy] = worldToScreen(px, py);
+  const modeColor = MODE_COLORS[state.gameMode] || '#80a0ff';
+  const isDead = state.isDead;
+  const gm = state.gameMode || 0;
+  const sz = 18;
+
+  // Death flash
+  if (isDead) {
+    ctx.save();
+    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(Date.now() * 0.02);
+    ctx.fillStyle = '#ff2020';
+    ctx.beginPath();
+    ctx.arc(spx, spy, sz * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Glow
+  if (!isDead) {
+    const grad = ctx.createRadialGradient(spx, spy, 0, spx, spy, sz * 2);
+    grad.addColorStop(0, modeColor + '60');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(spx - sz*2, spy - sz*2, sz*4, sz*4);
+  }
+
+  // Player shape by mode
+  ctx.save();
+  ctx.translate(spx, spy);
+  if (state.gravFlipped) ctx.scale(1, -1);
+  ctx.fillStyle = isDead ? '#ff3030' : modeColor;
+  ctx.strokeStyle = isDead ? '#ff8080' : 'white';
+  ctx.lineWidth = 2;
+
+  if (gm === 0 || gm === 5 || gm === 6) {
+    // Cube/Robot/Spider - square with rotation
+    const rot = (animFrame * 0.05) % (Math.PI * 2);
+    ctx.rotate(rot);
+    ctx.fillRect(-sz/2, -sz/2, sz, sz);
+    ctx.strokeRect(-sz/2, -sz/2, sz, sz);
+    // Inner square detail
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(-sz/4, -sz/4, sz/2, sz/2);
+  } else if (gm === 1) {
+    // Ship - triangle pointing right
+    ctx.beginPath();
+    ctx.moveTo(sz, 0);
+    ctx.lineTo(-sz*0.6, -sz*0.5);
+    ctx.lineTo(-sz*0.4, 0);
+    ctx.lineTo(-sz*0.6, sz*0.5);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (gm === 2) {
+    // Ball - circle
+    ctx.beginPath();
+    ctx.arc(0, 0, sz/2, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    // inner dot
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.arc(0, 0, sz/5, 0, Math.PI*2); ctx.fill();
+  } else if (gm === 3) {
+    // UFO - rounded top
+    ctx.beginPath();
+    ctx.ellipse(0, 0, sz*0.8, sz*0.5, 0, Math.PI, 0);
+    ctx.lineTo(sz*0.8, sz*0.3);
+    ctx.ellipse(0, sz*0.3, sz*0.8, sz*0.2, 0, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (gm === 4) {
+    // Wave - diamond
+    ctx.beginPath();
+    ctx.moveTo(0, -sz/2);
+    ctx.lineTo(sz/2, 0);
+    ctx.lineTo(0, sz/2);
+    ctx.lineTo(-sz/2, 0);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (gm === 7) {
+    // Swing - helicopter style
+    ctx.beginPath();
+    ctx.arc(0, 0, sz/2, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    const bladeAngle = (animFrame * 0.1) % (Math.PI * 2);
+    ctx.save();
+    ctx.rotate(bladeAngle);
+    ctx.fillStyle = modeColor + 'a0';
+    ctx.fillRect(-sz, -sz/6, sz*2, sz/3);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // Click indicator
+  if (state.isOnGround === false || state.gameMode !== 0) {
+    const clickAlpha = 0.3 + 0.7 * Math.abs(Math.sin(animFrame * 0.15));
+    ctx.fillStyle = modeColor + Math.floor(clickAlpha * 80).toString(16).padStart(2,'0');
+    ctx.beginPath();
+    ctx.arc(spx, spy, sz * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Mini progress graph bottom-left
+  drawMiniGraph(W, H);
+
+  // HUD overlay
+  drawHUD(W, H, modeColor);
+}
+
+function drawMiniGraph(W, H) {
+  if (progressHistory.length < 2) return;
+  const gW = 180, gH = 50, gX = 12, gY = H - 120;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(gX, gY, gW, gH);
+  ctx.strokeStyle = '#1a2040';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(gX, gY, gW, gH);
+
+  ctx.beginPath();
+  for (let i = 0; i < progressHistory.length; i++) {
+    const x = gX + (i / (progressHistory.length - 1)) * gW;
+    const y = gY + gH - (progressHistory[i] / 100) * gH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#4060ff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = '#304080';
+  ctx.font = '10px monospace';
+  ctx.fillText('Progress history', gX + 4, gY + 12);
+}
+
+function drawHUD(W, H, modeColor) {
+  if (!state) return;
+  ctx.fillStyle = modeColor;
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText((state.percent || 0).toFixed(1) + '%', W/2 - 30, 50);
+  ctx.font = '12px monospace';
+  ctx.fillStyle = '#5060a0';
+  ctx.fillText('Ep: ' + (state.episode||0) + '  Lvl: ' + (state.levelName||'—'), W/2 - 60, 70);
+}
+
+function drawNoData(W, H) {}
+
+let fetchInterval = null;
+function startFetching() {
+  fetchState();
+  fetchInterval = setInterval(fetchState, 150);
+}
+
+function loop(ts) {
+  frameCount++;
+  animFrame++;
+  if (ts - fpsTime > 1000) {
+    fpsDisp = frameCount;
+    frameCount = 0;
+    fpsTime = ts;
+    document.getElementById('fps-counter').textContent = fpsDisp + ' fps';
+  }
+  drawCanvas();
+  requestAnimationFrame(loop);
+}
+
+startFetching();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
