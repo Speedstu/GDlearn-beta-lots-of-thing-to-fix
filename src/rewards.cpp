@@ -12,5 +12,7 @@ RewardManager createDefaultRewards() {
     mgr.addReward(std::make_unique<CompletionReward>(),  50.0f);  // huge bonus for finishing
     mgr.addReward(std::make_unique<MilestoneReward>(),    5.0f);  // bonus every 10%
     mgr.addReward(std::make_unique<HazardDodgeReward>(),  3.0f);  // reward clearing spikes
+    mgr.addReward(std::make_unique<JumpTimingReward>(),   5.0f);  // reward good jumps, penalize jump-then-die
+    mgr.addReward(std::make_unique<ProximityReward>(),    2.0f);  // reward approaching hazards safely
     return mgr;
 }

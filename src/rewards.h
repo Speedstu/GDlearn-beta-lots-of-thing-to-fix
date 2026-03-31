@@ -104,8 +104,15 @@ public:
 };
 
 // Reward for jumping at the right time (near spikes) / penalize useless jumps
+// Also penalizes jumping then dying (bad timing)
 class JumpTimingReward : public RewardFunction {
+    bool jumpedRecently_ = false;
+    int framesSinceJump_ = 0;
 public:
+    void Reset() override { 
+        jumpedRecently_ = false; 
+        framesSinceJump_ = 0;
+    }
     float GetReward(const GameState& state, const GameState& prevState, bool isFinal) override {
         // Relevant in click-to-act modes: cube(0), ball(2), robot(5), spider(6)
         if (state.gameMode != 0 && state.gameMode != 2 &&
@@ -113,14 +120,37 @@ public:
 
         float reward = 0.0f;
 
+        // Check if we jumped and then died shortly after (bad timing penalty)
+        if (jumpedRecently_ && state.isDead) {
+            reward -= 0.5f; // Penalty for jumping then dying immediately
+            jumpedRecently_ = false;
+        }
+
+        // Track jump
         if (state.justJumped) {
+            jumpedRecently_ = true;
+            framesSinceJump_ = 0;
+            
             // Did we jump near a spike? (within ~5 blocks = 150 units ahead)
             if (state.nearestHazardDist < 150.0f) {
                 // Good jump! Reward scales with proximity (closer = better timing)
-                reward += 0.1f * (1.0f - state.nearestHazardDist / 150.0f);
+                // INCREASED: from 0.1f to 0.5f for stronger signal
+                reward += 0.5f * (1.0f - state.nearestHazardDist / 150.0f);
+            } else if (state.playerY < 100.0f) {
+                // Jumping near void/ground - also risky, reward if survived
+                // INCREASED: bonus for jumping near void
+                reward += 0.3f;
             } else {
                 // Useless jump — no spike nearby, slight penalty
-                reward -= 0.02f;
+                reward -= 0.05f;
+            }
+        }
+
+        // Decay jump tracking
+        if (jumpedRecently_) {
+            framesSinceJump_++;
+            if (framesSinceJump_ > 30) { // ~0.5 second window
+                jumpedRecently_ = false;
             }
         }
 
