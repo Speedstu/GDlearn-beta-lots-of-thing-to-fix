@@ -4,6 +4,8 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <unordered_set>
+#include <utility>
 
 // ============================================================================
 // GD Physics Constants (matched to real game values)
@@ -126,6 +128,9 @@ private:
     std::vector<std::vector<const LevelObject*>> speedBuckets_;
     int numBuckets_ = 0;
 
+    // Track triggered portals to avoid re-triggering while player is still inside
+    std::unordered_set<uint64_t> triggeredPortals_;
+    
     void buildSpatialIndex();
     int getBucket(float x) const;
 

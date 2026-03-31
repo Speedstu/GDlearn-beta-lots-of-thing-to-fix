@@ -27,6 +27,7 @@ void Simulator::reset() {
     player_.prevY = player_.y;
     player_.prevYVelocity = 0.0f;
     stepCount_ = 0;
+    triggeredPortals_.clear(); // Clear portal triggers on reset
 }
 
 float Simulator::getProgressPercent() const {
@@ -325,24 +326,33 @@ void Simulator::handleCollisions() {
 
     // =========================================================================
     // CHECK PORTALS (before solid resolution to ensure gamemode changes)
+    // Track triggered portals to avoid re-triggering while still inside
     // =========================================================================
     for (const auto* obj : portalBuckets_[bucket]) {
         // Use object's actual hitbox for portal detection
         if (checkAABB(player_.x, player_.y, pw, ph,
                      obj->x, obj->y, obj->hitboxW, obj->hitboxH)) {
+            // Check if this portal was already triggered (player still inside)
+            // Encode portal key as: (uint32_t)x << 32 | type
+            uint64_t portalKey = (uint64_t(obj->x) << 32) | uint64_t(obj->type);
+            if (triggeredPortals_.find(portalKey) != triggeredPortals_.end()) {
+                continue; // Already triggered this portal, skip
+            }
+            
+            // Mark as triggered
+            triggeredPortals_.insert(portalKey);
+            
             // Debug: print when portal is hit
-            static int lastPortalX = -9999;
-            if ((int)obj->x != lastPortalX) {
-                std::cout << "[Portal] Hit portal type=" << (int)obj->type 
-                          << " id=" << obj->id << " at x=" << obj->x 
-                          << " oldMode=" << player_.gameMode;
-                lastPortalX = (int)obj->x;
-            }
+            std::cout << "[Portal] Hit portal type=" << (int)obj->type 
+                      << " id=" << obj->id << " at x=" << obj->x 
+                      << " oldMode=" << player_.gameMode
+                      << " -> newMode=";
             handlePortal(*obj);
-            if ((int)obj->x == lastPortalX) {
-                std::cout << " -> newMode=" << player_.gameMode << std::endl;
-                lastPortalX = -9999; // reset for next portal
-            }
+            std::cout << player_.gameMode << std::endl;
+        } else {
+            // Player not overlapping this portal anymore, reset trigger
+            uint64_t portalKey = (uint64_t(obj->x) << 32) | uint64_t(obj->type);
+            triggeredPortals_.erase(portalKey);
         }
     }
 
