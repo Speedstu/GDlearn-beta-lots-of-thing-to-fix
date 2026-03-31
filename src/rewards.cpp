@@ -14,5 +14,6 @@ RewardManager createDefaultRewards() {
     mgr.addReward(std::make_unique<HazardDodgeReward>(),  3.0f);  // reward clearing spikes
     mgr.addReward(std::make_unique<JumpTimingReward>(),   5.0f);  // reward good jumps, penalize jump-then-die
     mgr.addReward(std::make_unique<ProximityReward>(),    2.0f);  // reward approaching hazards safely
+    mgr.addReward(std::make_unique<NoJumpWhenSafeReward>(), 2.0f); // reward staying calm when safe
     return mgr;
 }

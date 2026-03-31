@@ -122,7 +122,7 @@ public:
 
         // Check if we jumped and then died shortly after (bad timing penalty)
         if (jumpedRecently_ && state.isDead) {
-            reward -= 0.5f; // Penalty for jumping then dying immediately
+            reward -= 1.0f; // INCREASED: Penalty for jumping then dying immediately
             jumpedRecently_ = false;
         }
 
@@ -134,15 +134,13 @@ public:
             // Did we jump near a spike? (within ~5 blocks = 150 units ahead)
             if (state.nearestHazardDist < 150.0f) {
                 // Good jump! Reward scales with proximity (closer = better timing)
-                // INCREASED: from 0.1f to 0.5f for stronger signal
                 reward += 0.5f * (1.0f - state.nearestHazardDist / 150.0f);
             } else if (state.playerY < 100.0f) {
                 // Jumping near void/ground - also risky, reward if survived
-                // INCREASED: bonus for jumping near void
-                reward += 0.3f;
+                reward += 0.2f;
             } else {
-                // Useless jump — no spike nearby, slight penalty
-                reward -= 0.05f;
+                // Useless jump — no spike nearby, PENALTY INCREASED
+                reward -= 0.2f;  // Was -0.05f, now stronger penalty
             }
         }
 
@@ -157,6 +155,23 @@ public:
         return reward;
     }
     std::string GetName() const override { return "JumpTiming"; }
+};
+
+// Reward for NOT jumping when safe (calm behavior)
+class NoJumpWhenSafeReward : public RewardFunction {
+public:
+    float GetReward(const GameState& state, const GameState& prevState, bool isFinal) override {
+        // Only relevant in click-to-act modes
+        if (state.gameMode != 0 && state.gameMode != 2 &&
+            state.gameMode != 5 && state.gameMode != 6) return 0.0f;
+        
+        // If no hazard nearby and didn't jump - good, stay calm
+        if (state.nearestHazardDist > 200.0f && !state.justJumped && state.isOnGround) {
+            return 0.02f; // Small reward for staying calm
+        }
+        return 0.0f;
+    }
+    std::string GetName() const override { return "NoJumpWhenSafe"; }
 };
 
 // Reward for successfully passing over a hazard (was nearby, now behind us)
