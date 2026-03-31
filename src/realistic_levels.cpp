@@ -9,6 +9,18 @@
 #include <cmath>
 
 // Helper to add objects
+// Helper to add ceiling blocks
+static void addCeilingBlock(LevelData& level, float x, float y) {
+    LevelObject obj;
+    obj.id = 1;
+    obj.x = x;
+    obj.y = y;
+    obj.type = ObjectType::BLOCK;
+    obj.hitboxW = 30.0f;
+    obj.hitboxH = 30.0f;
+    level.objects.push_back(obj);
+}
+
 static void addBlock(LevelData& level, float x, float y) {
     LevelObject obj;
     obj.id = 1;
@@ -82,6 +94,8 @@ LevelData LevelParser::createStereoMadnessStyle() {
     for (int i = 0; i < 250; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling to prevent ship from flying over everything
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 5 * B;
@@ -162,6 +176,8 @@ LevelData LevelParser::createBackOnTrackStyle() {
     for (int i = 0; i < 200; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 4 * B;
@@ -234,6 +250,8 @@ LevelData LevelParser::createPolargeistStyle() {
     for (int i = 0; i < 220; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling to prevent ship from flying over everything
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 4 * B;
@@ -314,6 +332,8 @@ LevelData LevelParser::createDryOutStyle() {
             addBlock(level, i * B, 0);
             addBlock(level, i * B, -B);
         }
+        // Ceiling (always present even with gaps)
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     x = 4 * B;
@@ -358,6 +378,8 @@ LevelData LevelParser::createBaseAfterBaseStyle() {
     for (int i = 0; i < 250; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling to prevent ship from flying over everything
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 5 * B;
@@ -415,6 +437,8 @@ LevelData LevelParser::createCantLetGoStyle() {
     for (int i = 0; i < 230; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 4 * B;
@@ -468,6 +492,8 @@ LevelData LevelParser::createJumperStyle() {
     for (int i = 0; i < 240; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 4 * B;
@@ -522,6 +548,8 @@ LevelData LevelParser::createTimeMachineStyle() {
     for (int i = 0; i < 260; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 4 * B;
@@ -576,6 +604,8 @@ LevelData LevelParser::createCyclesStyle() {
     for (int i = 0; i < 220; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling to prevent ship from flying over everything
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 5 * B;
@@ -618,6 +648,8 @@ LevelData LevelParser::createXStepStyle() {
     for (int i = 0; i < 280; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 4 * B;
@@ -677,6 +709,8 @@ LevelData LevelParser::createClubstepStyle() {
     for (int i = 0; i < 350; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 5 * B;
@@ -751,6 +785,8 @@ LevelData LevelParser::createElectrodynamixStyle() {
     for (int i = 0; i < 300; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 4 * B;
@@ -798,6 +834,8 @@ LevelData LevelParser::createTheoryOfEverything2Style() {
     for (int i = 0; i < 400; i++) {
         addBlock(level, i * B, 0);
         addBlock(level, i * B, -B);
+        // Ceiling
+        addCeilingBlock(level, i * B, 250.0f);
     }
     
     float x = 5 * B;

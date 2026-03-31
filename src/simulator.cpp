@@ -422,11 +422,21 @@ void Simulator::handleSolid(const LevelObject& obj) {
         }
 
         // Check ceiling hit (player moving up into block from below)
-        // In GD, hitting a block from below with upward velocity kills you
+        // In GD, hitting a block from below always kills you (ship ceiling, cube ceiling)
         bool wasBelow = (player_.prevY + ph * 0.5f <= oBottom + 2.0f);
         if (wasBelow && player_.yVelocity > 0) {
             player_.isDead = true;
             return;
+        }
+
+        // Ship/UFO/Wave: hitting any block from below = death (they can't "land" on ceilings)
+        if (player_.gameMode == 1 || player_.gameMode == 3 ||
+            player_.gameMode == 4 || player_.gameMode == 7) {
+            // If player center is below block bottom, treat as ceiling hit = death
+            if (player_.y < oBottom && pTop > oBottom) {
+                player_.isDead = true;
+                return;
+            }
         }
 
         // Otherwise it's a wall collision = death
@@ -592,16 +602,40 @@ void Simulator::handleSpeedChange(const LevelObject& obj) {
 // ============================================================================
 void Simulator::checkGroundCollision(float ph) {
     if (!player_.gravityFlipped) {
+        // Ground hit
         if (player_.y - ph * 0.5f <= physics::GROUND_Y) {
             player_.y = physics::GROUND_Y + ph * 0.5f;
             if (player_.yVelocity < 0) player_.yVelocity = 0.0f;
             player_.onGround = true;
         }
+        // Ceiling hit — kills ship/ufo/wave/swing, kills cube too in GD
+        if (player_.y + ph * 0.5f >= physics::CEILING_Y) {
+            if (player_.gameMode == 1 || player_.gameMode == 3 ||
+                player_.gameMode == 4 || player_.gameMode == 7) {
+                // Ship/UFO/Wave/Swing: ceiling = death
+                player_.isDead = true;
+            } else {
+                // Cube/Ball/Robot/Spider: clamp (rare edge case)
+                player_.y = physics::CEILING_Y - ph * 0.5f;
+                player_.yVelocity = 0.0f;
+            }
+        }
     } else {
+        // Gravity flipped: ceiling is the floor
         if (player_.y + ph * 0.5f >= physics::CEILING_Y) {
             player_.y = physics::CEILING_Y - ph * 0.5f;
             if (player_.yVelocity > 0) player_.yVelocity = 0.0f;
             player_.onGround = true;
+        }
+        // Ground becomes ceiling when flipped
+        if (player_.y - ph * 0.5f <= physics::GROUND_Y) {
+            if (player_.gameMode == 1 || player_.gameMode == 3 ||
+                player_.gameMode == 4 || player_.gameMode == 7) {
+                player_.isDead = true;
+            } else {
+                player_.y = physics::GROUND_Y + ph * 0.5f;
+                player_.yVelocity = 0.0f;
+            }
         }
     }
 }

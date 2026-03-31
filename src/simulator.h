@@ -54,7 +54,7 @@ constexpr float SWING_CLICK_FORCE = -7.0f;  // Negative = pushes up
 constexpr float DELTA_TIME     = 1.0f / 240.0f; // physics substeps at 240Hz
 constexpr int   SUBSTEPS       = 4;              // 4 substeps per frame at 60fps
 constexpr float GROUND_Y       = 15.0f;          // Top of ground floor (blocks at y=0, h=30, top=15)
-constexpr float CEILING_Y      = 600.0f;         // Ceiling
+constexpr float CEILING_Y      = 600.0f;         // Ceiling (physical hard limit, blocks enforce real ceiling)
 
 } // namespace physics
 

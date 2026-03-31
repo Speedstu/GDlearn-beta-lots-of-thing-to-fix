@@ -394,6 +394,13 @@ LevelData LevelParser::parseFromString(const std::string& levelString) {
         obj.type = classifyObject(obj.id);
         computeHitbox(obj);
 
+        // Adjust block Y to align with ground line - blocks appear sunken
+        // Ground line is at y=15, block center needs to be at y=3 for top to align
+        if (obj.type == ObjectType::BLOCK) {
+            // Shift ALL blocks up by 12 units to align with ground line
+            obj.y += 12.0f;
+        }
+
         // Speed portal subtype
         if (obj.type == ObjectType::PORTAL_SPEED) {
             if (obj.id == 200) obj.speedType = SpeedType::HALF;
@@ -410,6 +417,9 @@ LevelData LevelParser::parseFromString(const std::string& levelString) {
     }
 
     indexObjects(level);
+    
+    // Add ceiling to prevent ship from flying over obstacles
+    addCeilingToLevel(level, 250.0f);
     
     // Debug: print loaded object counts
     std::cout << "[LevelParser] Loaded level: " << level.objectCount << " objects" << std::endl;
@@ -448,6 +458,118 @@ LevelData LevelParser::parseFromFile(const std::string& filepath) {
 
     std::cerr << "[LevelParser] Failed to decode level from: " << filepath << std::endl;
     return {};
+}
+
+LevelObject LevelParser::createCeilingBlock(float x, float y) {
+    LevelObject obj;
+    obj.id = 1;
+    obj.x = x;
+    obj.y = y;
+    obj.type = ObjectType::BLOCK;
+    obj.hitboxW = 30.0f;
+    obj.hitboxH = 30.0f;
+    return obj;
+}
+
+void LevelParser::addCeilingToLevel(LevelData& level, float defaultCeilingY) {
+    // Find all ship portals and other gamemode portals
+    std::vector<std::pair<float, bool>> portalEvents; // (x, isShipPortal)
+    
+    for (const auto& obj : level.portals) {
+        if (obj.type == ObjectType::PORTAL_SHIP) {
+            portalEvents.push_back({obj.x, true}); // Enter ship mode
+        } else if (obj.type == ObjectType::PORTAL_CUBE || 
+                   obj.type == ObjectType::PORTAL_BALL ||
+                   obj.type == ObjectType::PORTAL_UFO ||
+                   obj.type == ObjectType::PORTAL_WAVE ||
+                   obj.type == ObjectType::PORTAL_ROBOT ||
+                   obj.type == ObjectType::PORTAL_SPIDER ||
+                   obj.type == ObjectType::PORTAL_SWING) {
+            portalEvents.push_back({obj.x, false}); // Exit ship mode (enter other mode)
+        }
+    }
+    
+    // Sort by X position
+    std::sort(portalEvents.begin(), portalEvents.end(), 
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    
+    // Find ship sections (from ship portal to next non-ship portal)
+    std::vector<std::pair<float, float>> shipSections; // (startX, endX)
+    bool inShipSection = false;
+    float shipStartX = 0.0f;
+    
+    for (const auto& event : portalEvents) {
+        if (event.second && !inShipSection) {
+            // Entering ship mode
+            shipStartX = event.first;
+            inShipSection = true;
+        } else if (!event.second && inShipSection) {
+            // Exiting ship mode (entering another mode)
+            shipSections.push_back({shipStartX, event.first});
+            inShipSection = false;
+        }
+    }
+    
+    // If still in ship mode at end, extend to end of level
+    if (inShipSection) {
+        float maxX = 0.0f;
+        for (const auto& obj : level.objects) {
+            maxX = std::max(maxX, obj.x);
+        }
+        shipSections.push_back({shipStartX, maxX + 100.0f});
+    }
+    
+    // Find the highest block in each ship section
+    const float BLOCK_SIZE = 30.0f;
+    int ceilingBlocksAdded = 0;
+    
+    for (const auto& section : shipSections) {
+        float startX = section.first;
+        float endX = section.second;
+        
+        // Find highest block Y in this ship section
+        float maxBlockY = 0.0f;
+        for (const auto& obj : level.solids) {
+            if (obj.x >= startX - 60.0f && obj.x <= endX + 60.0f) {
+                // Block top = obj.y + hitboxH/2
+                float blockTop = obj.y + obj.hitboxH * 0.5f;
+                maxBlockY = std::max(maxBlockY, blockTop);
+            }
+        }
+        
+        // Ceiling at highest structure level + 1.5 blocks margin (reduced from 3)
+        float ceilingY = (maxBlockY > 0.0f) ? maxBlockY : defaultCeilingY;
+        ceilingY += 1.5f * BLOCK_SIZE; // 45 units margin
+        
+        int startBlock = static_cast<int>(startX / BLOCK_SIZE);
+        int endBlock = static_cast<int>((endX + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        
+        for (int i = startBlock; i <= endBlock; i++) {
+            float x = i * BLOCK_SIZE;
+            
+            // Check if there's already a block at this position
+            bool exists = false;
+            for (const auto& obj : level.solids) {
+                if (std::abs(obj.x - x) < BLOCK_SIZE * 0.5f && std::abs(obj.y - ceilingY) < BLOCK_SIZE * 0.5f) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                level.objects.push_back(createCeilingBlock(x, ceilingY));
+                ceilingBlocksAdded++;
+            }
+        }
+    }
+    
+    // Re-index to include the new ceiling blocks
+    if (ceilingBlocksAdded > 0) {
+        indexObjects(level);
+        std::cout << "[LevelParser] Added " << ceilingBlocksAdded << " ceiling blocks in " 
+                  << shipSections.size() << " ship section(s)" << std::endl;
+    } else {
+        std::cout << "[LevelParser] No ship sections found, no ceiling added" << std::endl;
+    }
 }
 
 // ============================================================================

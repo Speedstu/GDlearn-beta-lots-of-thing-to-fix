@@ -83,6 +83,11 @@ public:
     // Create a simple test level programmatically
     static LevelData createTestLevel(int difficulty = 1);
 
+    // Add ceiling blocks to any level (prevents ship from flying over)
+    static void addCeilingToLevel(LevelData& level, float ceilingY = 250.0f);
+    
+    static LevelObject createCeilingBlock(float x, float y);
+
     // Create tutorial level with single easy spike
     static LevelData createTutorialLevel();
     

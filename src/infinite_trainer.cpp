@@ -59,9 +59,8 @@ void Trainer::trainInfiniteVisual() {
     bool levelCompleted = false;
     int consecutiveCompletions = 0;  // Count consecutive level completions without dying
 
-    // All 21 official GD levels in order of difficulty
+    // All 21 official GD levels in order of difficulty (starting with Stereo Madness)
     std::vector<std::string> levelOrder = {
-        "tutorial",         // Tutorial (easiest)
         "stereomadness",    // Level 1: Stereo Madness
         "backontrack",      // Level 2: Back On Track
         "polargeist",       // Level 3: Polargeist
@@ -85,12 +84,9 @@ void Trainer::trainInfiniteVisual() {
         "fingerdash"        // Level 21: Fingerdash
     };
 
-    // Load first level
+    // Load first level (Stereo Madness)
     LevelData currentLevel;
     auto loadLevel = [&](const std::string& name) -> LevelData {
-        if (name == "tutorial") {
-            return LevelParser::createTutorialLevel();
-        }
         // All 21 official GD level files
         std::map<std::string, std::string> levelFiles = {
             {"stereomadness",   "G:/gd-ml-bot/levels/1.gmd"},
@@ -238,17 +234,8 @@ void Trainer::trainInfiniteVisual() {
             // Check if level completed (100% progress)
             if (result.progress >= 99.5f) {
                 consecutiveCompletions++;
-                // Tutorial only needs 1 completion, others need 3
-                int requiredCompletions = (levelOrder[currentLevelIdx] == "tutorial") ? 1 : 3;
-                std::cout << "\n🎉 LEVEL COMPLETED! " << levelOrder[currentLevelIdx] 
-                          << " (Consecutive: " << consecutiveCompletions << "/" << requiredCompletions << ")" << std::endl;
-
-                // Save checkpoint immediately on completion (with level index)
-                agent.save(checkpointDir_ + "/completed_" + levelOrder[currentLevelIdx], currentLevelIdx);
-                agent.save(checkpointDir_ + "/latest", currentLevelIdx);
-
-                // Only advance after required consecutive completions
-                if (consecutiveCompletions >= requiredCompletions) {
+                // Only advance after 3 consecutive completions
+                if (consecutiveCompletions >= 3) {
                     levelsCompleted++;
                     std::cout << "\n🏆 LEVEL MASTERED! " << levelOrder[currentLevelIdx] 
                               << " (" << levelsCompleted << "/" << levelOrder.size() << ") 🏆" << std::endl;
@@ -269,7 +256,7 @@ void Trainer::trainInfiniteVisual() {
 
                     std::cout << "[INFINITE] Now training on: " << levelOrder[currentLevelIdx] << std::endl;
                 } else {
-                    std::cout << "[INFINITE] Need " << (requiredCompletions - consecutiveCompletions) 
+                    std::cout << "[INFINITE] Need " << (3 - consecutiveCompletions) 
                               << " more consecutive completion(s) to advance!" << std::endl;
                 }
                 
@@ -394,7 +381,7 @@ void Trainer::trainInfiniteNoVisual() {
     int consecutiveCompletions = 0;  // Count consecutive level completions without dying
 
     std::vector<std::string> levelOrder = {
-        "tutorial", "stereomadness", "backontrack", "polargeist", "dryout",
+        "stereomadness", "backontrack", "polargeist", "dryout",
         "baseafterbase", "cantletgo", "jumper", "timemachine", "cycles",
         "xstep", "clutterfunk", "toe", "electroman", "clubstep",
         "electrodynamix", "hexagonforce", "blastprocessing", "toe2",
@@ -402,9 +389,6 @@ void Trainer::trainInfiniteNoVisual() {
     };
 
     auto loadLevel = [&](const std::string& name) -> LevelData {
-        if (name == "tutorial") {
-            return LevelParser::createTutorialLevel();
-        }
         // All 21 official GD level files
         std::map<std::string, std::string> levelFiles = {
             {"stereomadness",   "G:/gd-ml-bot/levels/1.gmd"},
@@ -452,7 +436,7 @@ void Trainer::trainInfiniteNoVisual() {
         if (name == "xstep") return LevelParser::createXStepStyle();
         if (name == "clubstep") return LevelParser::createClubstepStyle();
         if (name == "toe2") return LevelParser::createTheoryOfEverything2Style();
-        return LevelParser::createTutorialLevel();
+        return LevelParser::createStereoMadnessStyle();
     };
 
     LevelData currentLevel = loadLevel(levelOrder[currentLevelIdx]);
@@ -561,17 +545,15 @@ void Trainer::trainInfiniteNoVisual() {
             if (result.progress > bestProgress) bestProgress = result.progress;
 
             if (result.progress >= 99.5f) {
-                consecutiveCompletions++;
-                // Tutorial only needs 1 completion, others need 3
-                int requiredCompletions = (levelOrder[currentLevelIdx] == "tutorial") ? 1 : 3;
                 std::cout << "\n🎉 LEVEL COMPLETED! " << levelOrder[currentLevelIdx] 
-                          << " (Consecutive: " << consecutiveCompletions << "/" << requiredCompletions << ")" << std::endl;
+                          << " (Consecutive: " << consecutiveCompletions << "/3)" << std::endl;
 
+                // Save checkpoint immediately on completion (with level index)
                 agent.save(checkpointDir_ + "/completed_" + levelOrder[currentLevelIdx], currentLevelIdx);
                 agent.save(checkpointDir_ + "/latest", currentLevelIdx);
 
-                // Only advance after required consecutive completions
-                if (consecutiveCompletions >= requiredCompletions) {
+                // Only advance after 3 consecutive completions
+                if (consecutiveCompletions >= 3) {
                     levelsCompleted++;
                     std::cout << "\n🏆 LEVEL MASTERED! " << levelOrder[currentLevelIdx] 
                               << " (" << levelsCompleted << "/" << levelOrder.size() << ")" << std::endl;
@@ -588,7 +570,7 @@ void Trainer::trainInfiniteNoVisual() {
                     env.setRewards(createDefaultRewards());
                     std::cout << "[INFINITE] Now on: " << levelOrder[currentLevelIdx] << std::endl;
                 } else {
-                    std::cout << "[INFINITE] Need " << (requiredCompletions - consecutiveCompletions) 
+                    std::cout << "[INFINITE] Need " << (3 - consecutiveCompletions) 
                               << " more consecutive completion(s) to advance!" << std::endl;
                 }
                 bestProgress = 0.0f;

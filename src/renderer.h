@@ -76,7 +76,7 @@ private:
     int height_ = 720;
     bool shouldClose_ = false;
     int targetFPS_ = 60;
-    float speedMultiplier_ = 1.0f;
+    float speedMultiplier_ = 4.0f;
     
     // State
     RenderState currentState_;

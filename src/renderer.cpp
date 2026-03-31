@@ -417,22 +417,26 @@ void Renderer::drawGridLines() {
 void Renderer::drawBlock(const LevelObject& obj) {
     float scale = worldScale();
     int sx = (int)worldToScreenX(obj.x);
-    int sy = (int)worldToScreenY(obj.y + obj.hitboxH / 2.0f);
+    // obj.y is center. Top of block = obj.y + h/2, Bottom = obj.y - h/2
+    // worldToScreenY maps: higher world Y = higher on screen (lower screen Y)
+    int screenTop    = (int)worldToScreenY(obj.y + obj.hitboxH * 0.5f);
+    int screenBottom = (int)worldToScreenY(obj.y - obj.hitboxH * 0.5f);
     int w = (int)(obj.hitboxW * scale);
-    int h = (int)(obj.hitboxH * scale);
+    int h = screenBottom - screenTop;
+    if (h < 1) h = 1;
 
     // Main body
-    RECT body = {sx - w/2, sy, sx + w/2, sy + h};
+    RECT body = {sx - w/2, screenTop, sx + w/2, screenTop + h};
     FillRect(memDC_, &body, brBlock_);
 
     // Top highlight (3px bright strip)
-    RECT top = {sx - w/2, sy, sx + w/2, sy + 3};
+    RECT top = {sx - w/2, screenTop, sx + w/2, screenTop + 3};
     FillRect(memDC_, &top, brBlockHighlight_);
 
     // Outline
     HGDIOBJ oldPen = SelectObject(memDC_, penBlockOutline_);
     HGDIOBJ oldBrush = SelectObject(memDC_, (HBRUSH)GetStockObject(NULL_BRUSH));
-    Rectangle(memDC_, sx - w/2, sy, sx + w/2, sy + h);
+    Rectangle(memDC_, sx - w/2, screenTop, sx + w/2, screenTop + h);
     SelectObject(memDC_, oldPen);
     SelectObject(memDC_, oldBrush);
 }
@@ -440,14 +444,17 @@ void Renderer::drawBlock(const LevelObject& obj) {
 void Renderer::drawSpike(const LevelObject& obj) {
     float scale = worldScale();
     int sx = (int)worldToScreenX(obj.x);
-    int baseY = (int)worldToScreenY(obj.y);
-    int halfW = (int)(obj.hitboxW * scale * 0.45f);
-    int tipH = (int)(obj.hitboxH * scale * 0.9f);
+    // Spike should sit ON TOP of blocks - base at block top level
+    // obj.y is center of hitbox, so spike base = obj.y + hitboxH/2
+    float spikeBaseY = obj.y + obj.hitboxH * 0.5f;
+    int baseY = (int)worldToScreenY(spikeBaseY);
+    int halfW = (int)(obj.hitboxW * scale * 0.5f);
+    int tipH = (int)(30.0f * scale); // Spike visual height = 1 block
 
-    // Triangle: base at bottom, tip at top
-    int x1 = sx;           int y1 = baseY - tipH;  // tip
-    int x2 = sx - halfW;   int y2 = baseY;          // bottom-left
-    int x3 = sx + halfW;   int y3 = baseY;          // bottom-right
+    // Triangle: base at bottom (touching block), tip at top
+    int x1 = sx;           int y1 = baseY - tipH;  // tip (upwards)
+    int x2 = sx - halfW;   int y2 = baseY;          // bottom-left (base)
+    int x3 = sx + halfW;   int y3 = baseY;          // bottom-right (base)
 
     drawScreenTriangle(x1, y1, x2, y2, x3, y3, brSpike_, penSpike_);
 }
