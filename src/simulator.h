@@ -81,6 +81,7 @@ struct SimPlayer {
     float prevX = 0.0f;
     float prevY = 0.0f;
     float prevYVelocity = 0.0f;
+    bool pressedThisFrame = false;
 };
 
 // ============================================================================
@@ -112,6 +113,9 @@ public:
     // Query spatial index: check if a cell has solid/hazard objects
     bool hasSolidAt(float x, float y, float radius) const;
     bool hasHazardAt(float x, float y, float radius) const;
+    bool hasOrbAt(float x, float y, float radius) const;
+    bool hasPadAt(float x, float y, float radius) const;
+    bool hasPortalAt(float x, float y, float radius) const;
 
 private:
     SimPlayer player_;
@@ -128,8 +132,10 @@ private:
     std::vector<std::vector<const LevelObject*>> speedBuckets_;
     int numBuckets_ = 0;
 
-    // Track triggered portals to avoid re-triggering while player is still inside
+    // Track overlap-triggered gameplay objects so they fire once per contact.
     std::unordered_set<uint64_t> triggeredPortals_;
+    std::unordered_set<uint64_t> triggeredOrbs_;
+    std::unordered_set<uint64_t> triggeredPads_;
     
     void buildSpatialIndex();
     int getBucket(float x) const;

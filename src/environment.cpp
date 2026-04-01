@@ -11,8 +11,9 @@
 static constexpr int GRID_COLS = 12;     // 12 columns ahead (~360 units)
 static constexpr int GRID_ROWS = 8;      // 8 rows (4 above, 4 below)
 static constexpr float CELL_SIZE = 30.0f; // 1 GD block = 30 units
-// Grid obs size: GRID_COLS * GRID_ROWS * 2 channels (solid + hazard)
-static constexpr int GRID_OBS_SIZE = GRID_COLS * GRID_ROWS * 2;  // = 192
+// Grid obs size: solid + hazard + interactable + portal/speed
+static constexpr int GRID_CHANNELS = 4;
+static constexpr int GRID_OBS_SIZE = GRID_COLS * GRID_ROWS * GRID_CHANNELS;
 // Player state features
 static constexpr int PLAYER_OBS_SIZE = 14;
 // Total observation size
@@ -153,6 +154,8 @@ void Environment::scanGrid(const SimPlayer& player, std::vector<float>& obs) {
 
             obs.push_back(sim_.hasSolidAt(cellX, cellY, radius) ? 1.0f : 0.0f);
             obs.push_back(sim_.hasHazardAt(cellX, cellY, radius) ? 1.0f : 0.0f);
+            obs.push_back((sim_.hasOrbAt(cellX, cellY, radius) || sim_.hasPadAt(cellX, cellY, radius)) ? 1.0f : 0.0f);
+            obs.push_back(sim_.hasPortalAt(cellX, cellY, radius) ? 1.0f : 0.0f);
         }
     }
 }
@@ -209,6 +212,8 @@ void Environment::scanGridAt(float x, float y, std::vector<float>& obs) {
 
             obs.push_back(sim_.hasSolidAt(cellX, cellY, radius) ? 1.0f : 0.0f);
             obs.push_back(sim_.hasHazardAt(cellX, cellY, radius) ? 1.0f : 0.0f);
+            obs.push_back((sim_.hasOrbAt(cellX, cellY, radius) || sim_.hasPadAt(cellX, cellY, radius)) ? 1.0f : 0.0f);
+            obs.push_back(sim_.hasPortalAt(cellX, cellY, radius) ? 1.0f : 0.0f);
         }
     }
 }

@@ -298,6 +298,18 @@ void PPOAgent::save(const std::string& dir) const {
 bool PPOAgent::load(const std::string& dir, int& outLevelIdx) {
     bool ok = policy_.load(dir + "/policy.bin") && critic_.load(dir + "/critic.bin");
     if (ok) {
+        const auto& policySizes = policy_.getLayerSizes();
+        const auto& criticSizes = critic_.getLayerSizes();
+        if (policySizes.empty() || criticSizes.empty() ||
+            policySizes.front() != obsSize_ || criticSizes.front() != obsSize_) {
+            std::cerr << "[PPO] Checkpoint architecture mismatch. Expected obs="
+                      << obsSize_ << ", got policy obs="
+                      << (policySizes.empty() ? -1 : policySizes.front())
+                      << " critic obs="
+                      << (criticSizes.empty() ? -1 : criticSizes.front())
+                      << ". Skipping load." << std::endl;
+            return false;
+        }
         policy_.initBuffers();
         critic_.initBuffers();
         probsBuf_.resize(actionSize_);

@@ -58,10 +58,10 @@ static void addPad(LevelData& level, float x, float y) {
     LevelObject obj;
     obj.id = 35;
     obj.x = x;
-    obj.y = y;
+    obj.y = y + 9.0f; // Pad sits on top of the support block/ground.
     obj.type = ObjectType::PAD;
     obj.hitboxW = 30.0f;
-    obj.hitboxH = 10.0f;
+    obj.hitboxH = 12.0f;
     level.objects.push_back(obj);
 }
 
@@ -70,7 +70,7 @@ static void addPortal(LevelData& level, float x, float y, ObjectType type) {
     switch (type) {
         case ObjectType::PORTAL_SHIP: obj.id = 47; break;
         case ObjectType::PORTAL_CUBE: obj.id = 12; break;
-        case ObjectType::PORTAL_BALL: obj.id = 43; break;
+        case ObjectType::PORTAL_BALL: obj.id = 46; break;
         case ObjectType::PORTAL_WAVE: obj.id = 660; break;
         default: obj.id = 12;
     }

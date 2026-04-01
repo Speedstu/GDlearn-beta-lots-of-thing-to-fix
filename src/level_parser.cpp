@@ -197,7 +197,7 @@ ObjectType LevelParser::classifyObject(int id) {
     if (id == 13) return ObjectType::PORTAL_SHIP;    // Ship portal (blue)
     if (id == 12) return ObjectType::PORTAL_CUBE;    // Cube portal (orange)
     if (id == 47 || id == 111) return ObjectType::PORTAL_SHIP;  // Alternate ship
-    if (id == 46) return ObjectType::PORTAL_BALL;
+    if (id == 43 || id == 46) return ObjectType::PORTAL_BALL;
     if (id == 747) return ObjectType::PORTAL_UFO;
     if (id == 660 || id == 1049) return ObjectType::PORTAL_WAVE;
     if (id == 745) return ObjectType::PORTAL_ROBOT;
@@ -251,18 +251,29 @@ void LevelParser::computeHitbox(LevelObject& obj) {
             obj.hitboxH = 30.0f;
             break;
         case ObjectType::SPIKE:
-            // Spike hitbox: 20x20 centered on spike position
-            // Must be large enough that grounded player can't walk through
             obj.hitboxW = 20.0f;
             obj.hitboxH = 20.0f;
             break;
         case ObjectType::ORB:
-            obj.hitboxW = 30.0f;
-            obj.hitboxH = 30.0f;
+            obj.hitboxW = 28.0f;
+            obj.hitboxH = 28.0f;
             break;
         case ObjectType::PAD:
             obj.hitboxW = 30.0f;
-            obj.hitboxH = 10.0f;
+            obj.hitboxH = 12.0f;
+            break;
+        case ObjectType::PORTAL_GRAVITY:
+        case ObjectType::PORTAL_SHIP:
+        case ObjectType::PORTAL_BALL:
+        case ObjectType::PORTAL_UFO:
+        case ObjectType::PORTAL_WAVE:
+        case ObjectType::PORTAL_ROBOT:
+        case ObjectType::PORTAL_SPIDER:
+        case ObjectType::PORTAL_CUBE:
+        case ObjectType::PORTAL_SWING:
+        case ObjectType::PORTAL_SPEED:
+            obj.hitboxW = 34.0f;
+            obj.hitboxH = 84.0f;
             break;
         default:
             obj.hitboxW = 30.0f;
@@ -394,10 +405,11 @@ LevelData LevelParser::parseFromString(const std::string& levelString) {
         obj.type = classifyObject(obj.id);
         computeHitbox(obj);
 
-        // Adjust block Y to align with ground line - blocks appear sunken
-        // Ground line is at y=15, block center needs to be at y=3 for top to align
-        if (obj.type == ObjectType::BLOCK) {
-            // Shift ALL blocks up by 12 units to align with ground line
+        // Adjust Y to align with ground line (same shift for all gameplay objects)
+        if (obj.type == ObjectType::BLOCK ||
+            obj.type == ObjectType::SPIKE ||
+            obj.type == ObjectType::PAD  ||
+            obj.type == ObjectType::ORB) {
             obj.y += 12.0f;
         }
 

@@ -444,17 +444,20 @@ void Renderer::drawBlock(const LevelObject& obj) {
 void Renderer::drawSpike(const LevelObject& obj) {
     float scale = worldScale();
     int sx = (int)worldToScreenX(obj.x);
-    // Spike should sit ON TOP of blocks - base at block top level
-    // obj.y is center of hitbox, so spike base = obj.y + hitboxH/2
-    float spikeBaseY = obj.y + obj.hitboxH * 0.5f;
+
+    // Spike objects store a smaller gameplay hitbox near the tip, not the full
+    // visual triangle. Anchor the rendered base from the hitbox top so ground
+    // spikes sit flush on the block surface.
+    float spikeTipY = obj.y + obj.hitboxH * 0.5f;
+    float spikeBaseY = spikeTipY - 30.0f;
     int baseY = (int)worldToScreenY(spikeBaseY);
     int halfW = (int)(obj.hitboxW * scale * 0.5f);
-    int tipH = (int)(30.0f * scale); // Spike visual height = 1 block
+    int tipH = (int)(30.0f * scale);
 
     // Triangle: base at bottom (touching block), tip at top
-    int x1 = sx;           int y1 = baseY - tipH;  // tip (upwards)
-    int x2 = sx - halfW;   int y2 = baseY;          // bottom-left (base)
-    int x3 = sx + halfW;   int y3 = baseY;          // bottom-right (base)
+    int x1 = sx;         int y1 = baseY - tipH;
+    int x2 = sx - halfW; int y2 = baseY;
+    int x3 = sx + halfW; int y3 = baseY;
 
     drawScreenTriangle(x1, y1, x2, y2, x3, y3, brSpike_, penSpike_);
 }

@@ -2,6 +2,16 @@
 #include <iostream>
 #include <cstring>
 
+namespace {
+uint64_t makeObjectKey(const LevelObject& obj, uint32_t salt = 0) {
+    uint64_t x = static_cast<uint64_t>(static_cast<int>(std::lround(obj.x))) & 0x1FFFFF;
+    uint64_t y = static_cast<uint64_t>(static_cast<int>(std::lround(obj.y)) + 2048) & 0x1FFF;
+    uint64_t id = static_cast<uint64_t>(obj.id) & 0x7FF;
+    uint64_t type = static_cast<uint64_t>(obj.type) & 0x1F;
+    return (x << 32) ^ (y << 19) ^ (id << 8) ^ (type << 3) ^ salt;
+}
+}
+
 Simulator::Simulator() {}
 
 void Simulator::loadLevel(const LevelData& level) {
@@ -26,8 +36,11 @@ void Simulator::reset() {
     player_.prevX = 0.0f;
     player_.prevY = player_.y;
     player_.prevYVelocity = 0.0f;
+    player_.pressedThisFrame = false;
     stepCount_ = 0;
-    triggeredPortals_.clear(); // Clear portal triggers on reset
+    triggeredPortals_.clear();
+    triggeredOrbs_.clear();
+    triggeredPads_.clear();
 }
 
 float Simulator::getProgressPercent() const {
@@ -87,6 +100,7 @@ void Simulator::buildSpatialIndex() {
     };
 
     for (const auto& obj : level_.solids) addToBucket(solidBuckets_, obj);
+    // Pads act as solid surfaces AND launch pads — add to both buckets
     for (const auto& obj : level_.hazards) addToBucket(hazardBuckets_, obj);
     for (const auto& obj : level_.orbs) addToBucket(orbBuckets_, obj);
     for (const auto& obj : level_.pads) addToBucket(padBuckets_, obj);
@@ -133,6 +147,7 @@ bool Simulator::step(int action) {
     // Set input
     bool wasHolding = player_.isHolding;
     player_.isHolding = (action == 1);
+    player_.pressedThisFrame = player_.isHolding && !wasHolding;
 
     // Single physics step per frame (1/60s)
     // GD physics constants are already tuned for per-frame application
@@ -181,7 +196,7 @@ void Simulator::applyPhysics(float dt) {
     case 0: // CUBE
     {
         // Jump on click (only if on ground and just pressed)
-        if (player_.isHolding && player_.onGround) {
+        if (player_.pressedThisFrame && player_.onGround) {
             player_.yVelocity = physics::JUMP_FORCE * gravDir;
             player_.onGround = false;
         }
@@ -213,7 +228,7 @@ void Simulator::applyPhysics(float dt) {
     case 2: // BALL
     {
         // Click toggles gravity
-        if (player_.isHolding && player_.onGround) {
+        if (player_.pressedThisFrame && player_.onGround) {
             player_.gravityFlipped = !player_.gravityFlipped;
             player_.onGround = false;
             gravDir = player_.gravityFlipped ? -1.0f : 1.0f;
@@ -225,7 +240,7 @@ void Simulator::applyPhysics(float dt) {
     }
     case 3: // UFO
     {
-        if (player_.isHolding) {
+        if (player_.pressedThisFrame) {
             player_.yVelocity = physics::UFO_CLICK_FORCE * gravDir;
         }
         player_.yVelocity += physics::UFO_GRAVITY * gravDir;
@@ -246,7 +261,7 @@ void Simulator::applyPhysics(float dt) {
     case 5: // ROBOT
     {
         // Variable height jump (hold longer = jump higher)
-        if (player_.isHolding && player_.onGround) {
+        if (player_.pressedThisFrame && player_.onGround) {
             player_.yVelocity = physics::ROBOT_JUMP_FORCE * gravDir;
             player_.onGround = false;
             player_.robotJumpTimer = physics::ROBOT_MAX_JUMP_TIME;
@@ -266,7 +281,7 @@ void Simulator::applyPhysics(float dt) {
     case 6: // SPIDER
     {
         // Click teleports to nearest surface (flip gravity)
-        if (player_.isHolding && player_.onGround) {
+        if (player_.pressedThisFrame && player_.onGround) {
             player_.gravityFlipped = !player_.gravityFlipped;
             player_.onGround = false;
             gravDir = player_.gravityFlipped ? -1.0f : 1.0f;
@@ -332,9 +347,7 @@ void Simulator::handleCollisions() {
         // Use object's actual hitbox for portal detection
         if (checkAABB(player_.x, player_.y, pw, ph,
                      obj->x, obj->y, obj->hitboxW, obj->hitboxH)) {
-            // Check if this portal was already triggered (player still inside)
-            // Encode portal key as: (uint32_t)x << 32 | type
-            uint64_t portalKey = (uint64_t(obj->x) << 32) | uint64_t(obj->type);
+            uint64_t portalKey = makeObjectKey(*obj, 1);
             if (triggeredPortals_.find(portalKey) != triggeredPortals_.end()) {
                 continue; // Already triggered this portal, skip
             }
@@ -342,16 +355,10 @@ void Simulator::handleCollisions() {
             // Mark as triggered
             triggeredPortals_.insert(portalKey);
             
-            // Debug: print when portal is hit
-            std::cout << "[Portal] Hit portal type=" << (int)obj->type 
-                      << " id=" << obj->id << " at x=" << obj->x 
-                      << " oldMode=" << player_.gameMode
-                      << " -> newMode=";
             handlePortal(*obj);
-            std::cout << player_.gameMode << std::endl;
         } else {
             // Player not overlapping this portal anymore, reset trigger
-            uint64_t portalKey = (uint64_t(obj->x) << 32) | uint64_t(obj->type);
+            uint64_t portalKey = makeObjectKey(*obj, 1);
             triggeredPortals_.erase(portalKey);
         }
     }
@@ -378,20 +385,53 @@ void Simulator::handleCollisions() {
     // Ground floor collision (always present)
     checkGroundCollision(ph);
 
-    // Check orbs (after solid resolution, require click)
+    // Check orbs (after solid resolution, require a fresh press)
     for (const auto* obj : orbBuckets_[bucket]) {
-        if (player_.isHolding &&
-            checkAABB(player_.x, player_.y, pw, ph,
-                     obj->x, obj->y, obj->hitboxW, obj->hitboxH)) {
+        uint64_t orbKey = makeObjectKey(*obj, 2);
+        bool overlapping = checkAABB(player_.x, player_.y, pw, ph,
+                                     obj->x, obj->y, obj->hitboxW, obj->hitboxH);
+        if (!overlapping) {
+            triggeredOrbs_.erase(orbKey);
+            continue;
+        }
+        if (player_.pressedThisFrame &&
+            triggeredOrbs_.find(orbKey) == triggeredOrbs_.end()) {
+            triggeredOrbs_.insert(orbKey);
             handleOrb(*obj);
         }
     }
 
-    // Check pads (after solid resolution, auto-trigger)
+    // Check pads (auto-trigger once when crossing the pad surface).
     for (const auto* obj : padBuckets_[bucket]) {
-        if (checkAABB(player_.x, player_.y, pw, ph,
-                     obj->x, obj->y, obj->hitboxW, obj->hitboxH)) {
-            handlePad(*obj);
+        uint64_t padKey = makeObjectKey(*obj, 3);
+        bool overlapsX = std::abs(player_.x - obj->x) < (pw + obj->hitboxW) * 0.5f;
+        bool touchingPad = false;
+
+        if (!player_.gravityFlipped) {
+            float prevBottom = player_.prevY - ph * 0.5f;
+            float curBottom = player_.y - ph * 0.5f;
+            float padTop = obj->y + obj->hitboxH * 0.5f;
+            touchingPad = overlapsX &&
+                          prevBottom >= padTop - 4.0f &&
+                          curBottom <= padTop + 4.0f &&
+                          player_.yVelocity <= 0.0f;
+        } else {
+            float prevTop = player_.prevY + ph * 0.5f;
+            float curTop = player_.y + ph * 0.5f;
+            float padBottom = obj->y - obj->hitboxH * 0.5f;
+            touchingPad = overlapsX &&
+                          prevTop <= padBottom + 4.0f &&
+                          curTop >= padBottom - 4.0f &&
+                          player_.yVelocity >= 0.0f;
+        }
+
+        if (touchingPad) {
+            if (triggeredPads_.find(padKey) == triggeredPads_.end()) {
+                triggeredPads_.insert(padKey);
+                handlePad(*obj);
+            }
+        } else {
+            triggeredPads_.erase(padKey);
         }
     }
 }
@@ -550,50 +590,82 @@ void Simulator::handleOrb(const LevelObject& obj) {
 
 void Simulator::handlePad(const LevelObject& obj) {
     float gravDir = player_.gravityFlipped ? -1.0f : 1.0f;
-    // Yellow pad
+
     if (obj.id == 35) {
-        player_.yVelocity = physics::JUMP_FORCE * 1.3f * gravDir;
+        // Yellow pad — big jump
+        player_.yVelocity = physics::JUMP_FORCE * 1.5f * gravDir;
         player_.onGround = false;
+        std::cout << "[PAD] Yellow pad triggered at x=" << obj.x << " yVel=" << player_.yVelocity << std::endl;
     }
-    // Pink pad
     else if (obj.id == 67) {
-        player_.yVelocity = physics::JUMP_FORCE * gravDir;
+        // Pink pad — normal jump
+        player_.yVelocity = physics::JUMP_FORCE * 1.1f * gravDir;
         player_.onGround = false;
     }
-    // Red pad
     else if (obj.id == 140 || obj.id == 1332) {
-        player_.yVelocity = physics::JUMP_FORCE * 1.6f * gravDir;
+        // Red pad — huge jump
+        player_.yVelocity = physics::JUMP_FORCE * 2.0f * gravDir;
         player_.onGround = false;
+        std::cout << "[PAD] Red pad triggered at x=" << obj.x << std::endl;
     }
-    // Blue pad (gravity flip)
     else if (obj.id == 1524) {
+        // Blue pad — gravity flip
         player_.gravityFlipped = !player_.gravityFlipped;
         float newGrav = player_.gravityFlipped ? -1.0f : 1.0f;
-        player_.yVelocity = physics::JUMP_FORCE * 1.3f * newGrav;
+        player_.yVelocity = physics::JUMP_FORCE * 1.5f * newGrav;
         player_.onGround = false;
     }
-    // Spider pad
     else if (obj.id == 1697) {
+        // Spider pad
         player_.gravityFlipped = !player_.gravityFlipped;
+        player_.onGround = false;
+    }
+    else {
+        // Unknown pad id — default yellow-pad behavior
+        std::cout << "[PAD] Unknown pad id=" << obj.id << " at x=" << obj.x << " — applying yellow pad force" << std::endl;
+        player_.yVelocity = physics::JUMP_FORCE * 1.5f * gravDir;
         player_.onGround = false;
     }
 }
 
 void Simulator::handlePortal(const LevelObject& obj) {
+    bool modeChanged = false;
     switch (obj.type) {
         case ObjectType::PORTAL_GRAVITY:
             if (obj.id == 10) player_.gravityFlipped = false;       // Normal gravity
             else if (obj.id == 11) player_.gravityFlipped = true;   // Flipped
             break;
-        case ObjectType::PORTAL_CUBE:    player_.gameMode = 0; break;
-        case ObjectType::PORTAL_SHIP:    player_.gameMode = 1; break;
-        case ObjectType::PORTAL_BALL:    player_.gameMode = 2; break;
-        case ObjectType::PORTAL_UFO:     player_.gameMode = 3; break;
-        case ObjectType::PORTAL_WAVE:    player_.gameMode = 4; break;
-        case ObjectType::PORTAL_ROBOT:   player_.gameMode = 5; break;
-        case ObjectType::PORTAL_SPIDER:  player_.gameMode = 6; break;
-        case ObjectType::PORTAL_SWING:   player_.gameMode = 7; break;
+        case ObjectType::PORTAL_CUBE:    player_.gameMode = 0; modeChanged = true; break;
+        case ObjectType::PORTAL_SHIP:    player_.gameMode = 1; modeChanged = true; break;
+        case ObjectType::PORTAL_BALL:    player_.gameMode = 2; modeChanged = true; break;
+        case ObjectType::PORTAL_UFO:     player_.gameMode = 3; modeChanged = true; break;
+        case ObjectType::PORTAL_WAVE:    player_.gameMode = 4; modeChanged = true; break;
+        case ObjectType::PORTAL_ROBOT:   player_.gameMode = 5; modeChanged = true; break;
+        case ObjectType::PORTAL_SPIDER:  player_.gameMode = 6; modeChanged = true; break;
+        case ObjectType::PORTAL_SWING:   player_.gameMode = 7; modeChanged = true; break;
         default: break;
+    }
+
+    if (modeChanged) {
+        player_.robotJumpTimer = 0.0f;
+        player_.onGround = false;
+
+        switch (player_.gameMode) {
+            case 0:
+            case 2:
+            case 5:
+            case 6:
+                player_.yVelocity = std::clamp(player_.yVelocity, physics::MAX_FALL_SPEED, -physics::MAX_FALL_SPEED);
+                break;
+            case 1:
+            case 3:
+            case 4:
+            case 7:
+                player_.yVelocity = 0.0f;
+                break;
+            default:
+                break;
+        }
     }
 }
 
@@ -674,6 +746,51 @@ bool Simulator::hasHazardAt(float x, float y, float radius) const {
     if (b < 0 || b >= numBuckets_) return false;
 
     for (const auto* obj : hazardBuckets_[b]) {
+        if (std::abs(obj->x - x) < radius + obj->hitboxW * 0.5f &&
+            std::abs(obj->y - y) < radius + obj->hitboxH * 0.5f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Simulator::hasOrbAt(float x, float y, float radius) const {
+    int b = getBucket(x);
+    if (b < 0 || b >= numBuckets_) return false;
+
+    for (const auto* obj : orbBuckets_[b]) {
+        if (std::abs(obj->x - x) < radius + obj->hitboxW * 0.5f &&
+            std::abs(obj->y - y) < radius + obj->hitboxH * 0.5f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Simulator::hasPadAt(float x, float y, float radius) const {
+    int b = getBucket(x);
+    if (b < 0 || b >= numBuckets_) return false;
+
+    for (const auto* obj : padBuckets_[b]) {
+        if (std::abs(obj->x - x) < radius + obj->hitboxW * 0.5f &&
+            std::abs(obj->y - y) < radius + obj->hitboxH * 0.5f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Simulator::hasPortalAt(float x, float y, float radius) const {
+    int b = getBucket(x);
+    if (b < 0 || b >= numBuckets_) return false;
+
+    for (const auto* obj : portalBuckets_[b]) {
+        if (std::abs(obj->x - x) < radius + obj->hitboxW * 0.5f &&
+            std::abs(obj->y - y) < radius + obj->hitboxH * 0.5f) {
+            return true;
+        }
+    }
+    for (const auto* obj : speedBuckets_[b]) {
         if (std::abs(obj->x - x) < radius + obj->hitboxW * 0.5f &&
             std::abs(obj->y - y) < radius + obj->hitboxH * 0.5f) {
             return true;

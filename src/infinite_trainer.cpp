@@ -54,7 +54,7 @@ void Trainer::trainInfiniteVisual() {
     logger_.init(logDir_);
 
     // Level progression: start easy, get harder
-    int currentLevelIdx = 0;
+    int currentLevelIdx = 1;  // Start at Back On Track (after Stereo Madness)
     int levelsCompleted = 0;
     bool levelCompleted = false;
     int consecutiveCompletions = 0;  // Count consecutive level completions without dying
