@@ -1,0 +1,86 @@
+name: one-shot classic fidelity A-B v2
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/classic_fidelity_probe2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fidelity:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply measured fidelity patch
+        run: python3 tools/apply_classic_fidelity_patch.py
+
+      - name: Build and test patched simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/fidelity-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/fidelity-build -j"$(nproc)"
+          /tmp/fidelity-build/gdlearn selftest
+
+      - name: Probe official demons at identical beam 96
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fidelity-levels /tmp/fidelity-logs
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/fidelity-levels/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/fidelity-levels/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/fidelity-levels/d.gdl --name Deadlocked
+          for f in /tmp/fidelity-levels/*.gdl; do
+            echo "$(basename "$f") objects=$(grep -c '^o ' "$f")"
+          done
+          set +e
+          for k in c t d; do
+            /tmp/fidelity-build/gdlearn solve /tmp/fidelity-levels/$k.gdl --beam 96 --widen 0 \
+              --max-frames 43200 --stall 1440 --out /tmp/$k.macro | tee /tmp/fidelity-logs/$k.log
+          done
+          set -e
+
+      - name: Compare against current validated baseline
+        shell: python
+        run: |
+          import re
+          baseline={'c':6.00,'t':1.61,'d':6.41}
+          new={}
+          for k in baseline:
+              txt=open(f'/tmp/fidelity-logs/{k}.log').read()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',txt)
+              if not m: raise SystemExit('missing progress '+k)
+              new[k]=float(m[-1])
+          gain={k:new[k]-baseline[k] for k in baseline}
+          print('BASE',baseline,'NEW',new,'GAIN',gain)
+          if max(gain['c'],gain['t']) < 0.50:
+              raise SystemExit('no meaningful early classic-level improvement')
+          if sum(new.values()) < sum(baseline.values()) + 1.0:
+              raise SystemExit('aggregate demon reach did not improve')
+          if any(new[k]+0.75 < baseline[k] for k in baseline):
+              raise SystemExit('material regression on an official demon')
+
+      - name: Commit validated calibration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/classic_fidelity_probe.yml \
+                .github/workflows/classic_fidelity_probe2.yml \
+                tools/apply_classic_fidelity_patch.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A tools/gmd_to_gdl.py src/core/physics.hpp src/core/sim.cpp \
+                    .github/workflows/classic_fidelity_probe.yml \
+                    .github/workflows/classic_fidelity_probe2.yml \
+                    tools/apply_classic_fidelity_patch.py
+          git commit -m 'calibrate classic GD physics portals and hitboxes'
+          git push origin HEAD:agent/gdlearn2-replace
