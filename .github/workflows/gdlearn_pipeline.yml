@@ -35,6 +35,25 @@ jobs:
           echo "converted gameplay objects: $OBJECTS"
           test "$OBJECTS" -gt 20
           grep '^# gdlearn level v1' /tmp/1.gdl
+      - name: Native policy runner and guided beam smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/gdlearn train --levels levels/d0_s0.gdl --envs 2 --steps-per-env 4 \
+            --epochs 1 --minibatch 4 --total-steps 8 --save-every 0 --out /tmp/policy
+          grep '^gdlearn_policy_v2$' /tmp/policy/schema.txt
+          set +e
+          ./build/gdlearn eval /tmp/policy levels/d0_s0.gdl --max-frames 80 --out /tmp/eval.macro
+          EVAL_RC=$?
+          ./build/gdlearn solve levels/d0_s0.gdl --policy /tmp/policy --prior-weight 4 \
+            --beam 16 --max-frames 80 --stall 40 --widen 0 --out /tmp/guided.macro
+          SOLVE_RC=$?
+          set -e
+          test "$EVAL_RC" -ne 1
+          test "$EVAL_RC" -ne 2
+          test "$SOLVE_RC" -ne 2
+          test -s /tmp/eval.macro
+          test -s /tmp/guided.macro
       - name: Reject legacy 60-TPS macro cache
         shell: bash
         run: |
