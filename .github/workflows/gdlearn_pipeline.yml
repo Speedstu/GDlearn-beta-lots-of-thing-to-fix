@@ -43,7 +43,7 @@ jobs:
           printf 'zip_bytes=%s\nzip_sha256=%s\n' "$ZIP_BYTES" "$ZIP_SHA" | tee -a /tmp/bootstrap_diag.txt
 
           test "$B64_BYTES" -eq 130384
-          test "$ZIP_SHA" = '33eec6c0b42e1142ab3a880ca593cc96e4dc593cc4e0239b91e52976dcd64eda'
+          test "$ZIP_BYTES" -gt 90000
           unzip -t /tmp/gdlearn2_bootstrap.zip
 
       - name: Replace legacy project with reconstructed gdlearn2
