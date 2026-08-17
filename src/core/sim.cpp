@@ -12,6 +12,15 @@ inline bool aabb(float ax, float ay, float ahw, float ahh, float bx, float by,
   return std::fabs(ax - bx) < (ahw + bhw) && std::fabs(ay - by) < (ahh + bhh);
 }
 
+inline bool ellipseAabb(float ax, float ay, float ahw, float ahh,
+                        float ex, float ey, float rx, float ry) {
+  if (rx <= 0.0f || ry <= 0.0f) return false;
+  const float qx = std::clamp(ex, ax - ahw, ax + ahw);
+  const float qy = std::clamp(ey, ay - ahh, ay + ahh);
+  const float dx = (qx - ex) / rx, dy = (qy - ey) / ry;
+  return dx * dx + dy * dy <= 1.0f;
+}
+
 // Modes that die on any solid contact instead of landing on it.
 inline bool diesOnTouch(Mode m) { return m == Mode::Wave; }
 
@@ -323,7 +332,10 @@ void Sim::resolveWorld(float prevY) {
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
     if (o.kind != Kind::Hazard) continue;
-    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {
+    const bool hit = o.sub == 1
+        ? ellipseAabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)
+        : aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh);
+    if (hit) {
       lastContactUid_ = o.uid;
       deathUid_ = o.uid;
       st_.dead = true;
@@ -415,8 +427,12 @@ bool Sim::hazardAt(float x, float y) const {
   const std::vector<Object>& objs = level_->objects();
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
-    if (o.kind == Kind::Hazard && aabb(x, y, 0.5f, 0.5f, o.x, o.y, o.hw, o.hh))
-      return true;
+    if (o.kind != Kind::Hazard) continue;
+    if (o.sub == 1) {
+      const float dx=(x-o.x)/std::max(0.001f,o.hw);
+      const float dy=(y-o.y)/std::max(0.001f,o.hh);
+      if (dx*dx+dy*dy <= 1.0f) return true;
+    } else if (aabb(x,y,0.5f,0.5f,o.x,o.y,o.hw,o.hh)) return true;
   }
   return false;
 }

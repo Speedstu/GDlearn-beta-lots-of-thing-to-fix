@@ -21,6 +21,7 @@ import os
 import zlib
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional, Tuple
+import pathfinder_geometry as pg
 
 # Gameplay IDs.  The conservative rule is important: unknown decoration must
 # NOT become collision, otherwise a visually dense demon becomes impossible in
@@ -170,8 +171,8 @@ def classify(props: Dict[int, str]) -> Optional[GdlObject]:
 
     x, y = _f(props, 2, 0.0), _f(props, 3, 0.0)
     scale = max(0.01, abs(_f(props, 32, 1.0)))
-    sx = max(0.01, abs(_f(props, 128, scale)))
-    sy = max(0.01, abs(_f(props, 129, scale)))
+    sx = scale * max(0.01, abs(_f(props, 128, 1.0)))
+    sy = scale * max(0.01, abs(_f(props, 129, 1.0)))
     rot = _f(props, 6, 0.0)
 
     if oid in PORTALS:
@@ -195,20 +196,18 @@ def classify(props: Dict[int, str]) -> Optional[GdlObject]:
         return GdlObject('pad', PADS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in ORBS:
         return GdlObject('orb', ORBS[oid], x, y, 18.0 * sx, 18.0 * sy, oid)
-    if oid in HAZARD_IDS:
-        if oid == 991:
-            bhw, bhh = 1.200195315 * sx, 1.600006105 * sy
-        else:
-            bhw, bhh = 4.0 * sx, 8.0 * sy
-        hw, hh = _rotated_half_extents(bhw, bhh, rot)
+    if oid in pg.SAW_RADII:
+        r = pg.SAW_RADII[oid]
+        return GdlObject('hazard', 1, x, y, r * sx, r * sy, oid)
+    if oid in pg.HAZARD_SIZES:
+        w, h = pg.HAZARD_SIZES[oid]
+        hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)
         return GdlObject('hazard', 0, x, y, hw, hh, oid)
-    if oid in SOLID_IDS:
-        if oid == 468:
-            bhw, bhh = 15.0 * sx, 0.75 * sy
-        else:
-            bhw, bhh = 15.0 * sx, 15.0 * sy
-        hw, hh = _rotated_half_extents(bhw, bhh, rot)
+    if oid in pg.BLOCK_SIZES:
+        w, h = pg.BLOCK_SIZES[oid]
+        hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)
         return GdlObject('solid', 0, x, y, hw, hh, oid)
+    # Slopes require triangular collision. Never turn them into full AABBs.
     return None
 
 
