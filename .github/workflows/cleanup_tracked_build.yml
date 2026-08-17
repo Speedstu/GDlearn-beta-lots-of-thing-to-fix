@@ -1,0 +1,35 @@
+name: one-shot remove tracked build output
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/cleanup_tracked_build.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove generated build tree from git
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          rm .github/workflows/cleanup_tracked_build.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git ls-files | grep -q '^build/'; then
+            echo 'tracked build files still remain'
+            exit 1
+          fi
+          git commit -m 'remove generated build artifacts from repository'
+          git push origin HEAD:agent/gdlearn2-replace
