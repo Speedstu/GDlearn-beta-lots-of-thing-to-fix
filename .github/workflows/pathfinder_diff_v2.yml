@@ -1,0 +1,14 @@
+name: Pathfinder diff v2
+on: {push: {branches: [agent/gdlearn2-physics-v6], paths: [.github/workflows/pathfinder_diff_v2.yml]}}
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j"$(nproc)" >/dev/null
+          python3 tools/pathfinder_diff.py --bin ./build/gdlearn --beam 6144 --frames 3000
