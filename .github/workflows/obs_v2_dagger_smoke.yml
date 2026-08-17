@@ -1,0 +1,61 @@
+name: obs v2 DAgger closed-loop smoke
+
+on:
+  push:
+    branches: [agent/gdlearn2-obs-v2]
+    paths: [.github/workflows/obs_v2_dagger_smoke.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  dagger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          ./build/gdlearn selftest
+      - name: Build exact teacher cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pool /tmp/macros /tmp/model
+          mkdir -p /tmp/pool /tmp/macros
+          for x in d0_s0 d1_s0 d2_s0; do
+            cp "levels/$x.gdl" "/tmp/pool/$x.gdl"
+            ./build/gdlearn solve "/tmp/pool/$x.gdl" --beam 1536 --widen 0 --max-frames 12000 --stall 3000 --out "/tmp/macros/$x.macro"
+            ./build/gdlearn replay "/tmp/pool/$x.gdl" "/tmp/macros/$x.macro" | grep COMPLETE
+          done
+      - name: Train 848D DAgger curriculum
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/gdlearn curriculum --levels /tmp/pool --out /tmp/model --macros /tmp/macros \
+            --beams 1536,6144 --tiers 3 --rounds 6 --epochs 100 --minibatch 256 \
+            --hidden 384 --lr 0.0006 --promote 0.70 --max-samples 200000 \
+            --max-frames 12000 --rescue-beam 6144 --mem-budget-mb 4500 2>&1 | tee /tmp/train.log
+          grep '^obs_dim 848$' /tmp/model/schema.txt
+      - name: Strict closed-loop evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          : >/tmp/eval.txt
+          for x in d0_s0 d1_s0 d2_s0; do
+            set +e
+            ./build/gdlearn eval /tmp/model "/tmp/pool/$x.gdl" --max-frames 12000 --out "/tmp/$x.eval.macro" | tee -a /tmp/eval.txt
+            set -e
+          done
+          python3 - <<'PY'
+          import re
+          t=open('/tmp/eval.txt').read()
+          vals=[float(x) for x in re.findall(r':\s+([0-9.]+)%',t)]
+          clears=t.count('COMPLETE')
+          print('OBS848_DAGGER', {'progress':vals,'clears':clears})
+          if len(vals) < 3: raise SystemExit('missing evals')
+          if clears < 2: raise SystemExit('848D did not yet preserve at least 2/3 clears')
+          if sum(vals[-3:])/3.0 < 65.0: raise SystemExit('848D mean too low')
+          PY
