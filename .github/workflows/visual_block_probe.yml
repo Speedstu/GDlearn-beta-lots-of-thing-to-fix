@@ -1,0 +1,72 @@
+name: visual failure screenshots
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/visual_block_probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+      - name: Solve and render failure viewers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/v
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/v/club.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/v/toe2.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/v/dead.gdl --name Deadlocked
+          set +e
+          ./build/gdlearn solve /tmp/v/club.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/v/club.macro
+          ./build/gdlearn solve /tmp/v/toe2.gdl --beam 24576 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/v/toe2.macro
+          ./build/gdlearn solve /tmp/v/dead.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/v/dead.macro
+          set -e
+          for k in club toe2 dead; do
+            ./build/gdlearn render /tmp/v/$k.gdl /tmp/v/$k.macro --out /tmp/v/$k.html --max-frames 43200
+            ./build/gdlearn trace /tmp/v/$k.gdl --macro /tmp/v/$k.macro --frames 43200 > /tmp/v/$k.trace.txt
+          done
+      - name: Freeze viewers at final frame
+        shell: python
+        run: |
+          from pathlib import Path
+          for k in ('club','toe2','dead'):
+            p=Path('/tmp/v/'+k+'.html')
+            s=p.read_text()
+            needle='resize();\nrequestAnimationFrame(tick);'
+            repl="i = Math.max(0, tr.length - 1); document.getElementById('scrub').value = i; resize();\nrequestAnimationFrame(tick);"
+            if needle not in s: raise SystemExit('viewer anchor missing')
+            p.write_text(s.replace(needle,repl,1))
+      - name: Capture PNG screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          BROWSER="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          echo "browser=$BROWSER"
+          if [[ -n "$BROWSER" ]]; then
+            for k in club toe2 dead; do
+              "$BROWSER" --headless --no-sandbox --disable-gpu --hide-scrollbars --window-size=1600,900 \
+                --screenshot=/tmp/v/$k.png "file:///tmp/v/$k.html" || true
+            done
+          fi
+          ls -lh /tmp/v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gdlearn-failure-screens-${{ github.run_id }}
+          path: |
+            /tmp/v/*.png
+            /tmp/v/*.html
+            /tmp/v/*.trace.txt
+            /tmp/v/*.gdl
+            /tmp/v/*.macro
+          if-no-files-found: error
+          retention-days: 7
