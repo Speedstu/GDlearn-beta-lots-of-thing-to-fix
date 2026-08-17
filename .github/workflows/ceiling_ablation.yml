@@ -1,0 +1,48 @@
+name: global ceiling ablation
+
+on:
+  push:
+    branches: [agent/gdlearn2-ceiling-ablation]
+    paths: [.github/workflows/ceiling_ablation.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove only global top kill
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          old='if (st_.y < phys::KILL_BELOW || st_.y > phys::CEILING_Y) st_.dead = true;'
+          new='if (st_.y < phys::KILL_BELOW) st_.dead = true;'
+          if old not in s: raise SystemExit('global ceiling kill anchor missing')
+          p.write_text(s.replace(old,new,1))
+      - name: Build and solve Clubstep
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          ./build/gdlearn selftest
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/c.gdl --name Clubstep
+          set +e
+          ./build/gdlearn solve /tmp/c.gdl --beam 6144 --widen 0 --max-frames 16000 --stall 6000 --out /tmp/c.macro | tee /tmp/c.log
+          set -e
+          ./build/gdlearn trace /tmp/c.gdl --macro /tmp/c.macro --frames 16000 > /tmp/c.trace
+          tail -n 10 /tmp/c.trace
+          python3 - <<'PY'
+          import re
+          ys=[]
+          for l in open('/tmp/c.trace'):
+            p=l.split()
+            if len(p)>=13 and p[0].isdigit(): ys.append(float(p[3])*30.0)
+          print('max_y_world', max(ys) if ys else None)
+          t=open('/tmp/c.log').read(); m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+          print('progress', m[-1] if m else 'missing')
+          PY
