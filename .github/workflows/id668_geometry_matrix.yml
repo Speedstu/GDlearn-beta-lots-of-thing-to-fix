@@ -1,0 +1,90 @@
+name: ID668 collision geometry matrix
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/id668_geometry_matrix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, ignore_668, thin_3, thin_1, ignore_661_695]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch converter geometry
+        shell: python
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v = os.environ['VARIANT']
+          p = Path('tools/gmd_to_gdl.py')
+          s = p.read_text()
+
+          if v == 'baseline':
+              print('baseline')
+              raise SystemExit(0)
+
+          if v == 'ignore_668':
+              anchor = "SOLID_IDS = set(range(1, 8)) | {\n"
+              if anchor not in s: raise SystemExit('SOLID_IDS anchor missing')
+              # Keep the source table untouched and override immediately after
+              # construction, so this is an isolated diagnostic.
+              end = "}\n\n# gdl PortalKind enum values"
+              if end not in s: raise SystemExit('SOLID_IDS end anchor missing')
+              s = s.replace(end, "}\nSOLID_IDS.discard(668)\n\n# gdl PortalKind enum values", 1)
+
+          elif v == 'ignore_661_695':
+              end = "}\n\n# gdl PortalKind enum values"
+              if end not in s: raise SystemExit('SOLID_IDS end anchor missing')
+              s = s.replace(end, "}\nSOLID_IDS.difference_update(range(661, 696))\n\n# gdl PortalKind enum values", 1)
+
+          elif v in ('thin_3', 'thin_1'):
+              half_thickness = 1.5 if v == 'thin_3' else 0.5
+              anchor = "    if oid in HAZARD_IDS:\n"
+              insert = f"""    if oid == 668:\n        # Diagnostic: treat ID668 as a thin 30-unit platform rather than a\n        # filled 30x30 square; rotation is still honored.\n        hw, hh = _rotated_half_extents(15.0 * sx, {half_thickness} * sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n"""
+              if anchor not in s: raise SystemExit('hazard anchor missing')
+              s = s.replace(anchor, insert + anchor, 1)
+
+          else:
+              raise SystemExit('unknown variant ' + v)
+
+          p.write_text(s)
+          print('variant', v)
+
+      - name: Build and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def pct(k):
+              txt = Path('/tmp/log/' + k + '.log').read_text()
+              m = re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%', txt)
+              return float(m[-1]) if m else -1.0
+          print('RESULT', {'clubstep': pct('c'), 'toe2': pct('t'), 'deadlocked': pct('d')})
+          PY
