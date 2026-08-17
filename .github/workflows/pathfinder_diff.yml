@@ -1,0 +1,92 @@
+name: Pathfinder differential physics
+on: {push: {branches: [agent/gdlearn2-physics-v6], paths: [.github/workflows/pathfinder_diff.yml]}}
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build gdlearn and generate ToE2 replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j"$(nproc)" >/dev/null
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/toe2.gdl --name 'Theory of Everything 2'
+          ./build/gdlearn solve /tmp/toe2.gdl --beam 6144 --widen 0 --max-frames 3000 --stall 2000 --out /tmp/toe2.macro >/tmp/solve.log || true
+          ./build/gdlearn trace /tmp/toe2.gdl --macro /tmp/toe2.macro --frames 3000 > /tmp/gd.trace
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0,'tools')
+          import gmd_to_gdl as g
+          d=g.try_decompress(open('levels/18.gmd','rb').read())
+          if not d: raise SystemExit('decode level failed')
+          open('/tmp/toe2.level','wb').write(d)
+          acts=[]
+          for line in open('/tmp/toe2.macro'):
+            p=line.split()
+            if len(p)==3 and p[0]=='r': acts += [p[1]]*int(p[2])
+          open('/tmp/actions.txt','w').write(''.join(acts))
+          print('actions',len(acts))
+          PY
+      - name: Build Pathfinder reference runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pathfinder
+          cmake -S /tmp/pathfinder/gd-sim -B /tmp/pf-build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/pf-build -j"$(nproc)" >/dev/null
+          cat >/tmp/ref_runner.cpp <<'CPP'
+          #include <Level.hpp>
+          #include <fstream>
+          #include <iostream>
+          #include <iterator>
+          #include <string>
+          int main() {
+            std::ifstream lf("/tmp/toe2.level");
+            std::string level((std::istreambuf_iterator<char>(lf)), {});
+            std::ifstream af("/tmp/actions.txt");
+            std::string a; af >> a;
+            Level lv(level);
+            for (size_t i=0;i<a.size();++i) {
+              Player& p=lv.runFrame(a[i]=='1',1.0f/240.0f);
+              const double worldVy=(p.upsideDown ? -p.velocity : p.velocity)/240.0;
+              std::cout<<i<<" "<<p.pos.x<<" "<<p.pos.y<<" "<<worldVy<<" "
+                       <<(int)p.vehicle.type<<" "<<p.upsideDown<<" "<<p.grounded<<" "<<p.dead<<"\n";
+              if(p.dead) break;
+            }
+          }
+          CPP
+          g++ -O2 -std=c++20 /tmp/ref_runner.cpp -I/tmp/pathfinder/gd-sim/include /tmp/pf-build/libgd-sim.a -o /tmp/ref_runner
+          /tmp/ref_runner >/tmp/ref.trace
+      - name: Find first physical divergence
+        shell: python
+        run: |
+          import math
+          gd={}
+          for l in open('/tmp/gd.trace'):
+            p=l.split()
+            if len(p)<8 or not p[0].isdigit(): continue
+            # gd trace is frame,hold,xBlocks,yBlocks,vy,...,mode,flip
+            gd[int(p[0])] = (float(p[2])*30.0,float(p[3])*30.0,float(p[4]),int(p[7]),int(p[8]))
+          ref={}
+          for l in open('/tmp/ref.trace'):
+            p=l.split()
+            if len(p)<8: continue
+            ref[int(p[0])] = (float(p[1]),float(p[2]),float(p[3]),int(p[4]),int(p[5]),int(p[7]))
+          first=None
+          for i in sorted(set(gd)&set(ref)):
+            gx,gy,gv,gm,gf=gd[i]; rx,ry,rv,rm,rf,dead=ref[i]
+            dx=abs(gx-rx);dy=abs(gy-ry);dv=abs(gv-rv)
+            if dx>.15 or dy>.15 or dv>.03 or gm!=rm or gf!=rf:
+              first=(i,(gx,gy,gv,gm,gf),(rx,ry,rv,rm,rf,dead),(dx,dy,dv)); break
+          print('FIRST_DIVERGENCE',first)
+          if first:
+            i=first[0]
+            print('GD window')
+            for j in range(max(0,i-8),i+9):
+              if j in gd: print(j,gd[j])
+            print('REF window')
+            for j in range(max(0,i-8),i+9):
+              if j in ref: print(j,ref[j])
+          print('reference_frames',len(ref),'gd_frames',len(gd))
