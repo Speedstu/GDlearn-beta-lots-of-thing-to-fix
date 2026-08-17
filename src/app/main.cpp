@@ -140,6 +140,38 @@ int cmdSelftest() {
           "flipped cube is never clamped by flight corridor ceiling");
   }
 
+  // Regression: an inverted flight mode must never be teleported below
+  // the level by a remote "ceiling" reference. The old flipped-only clamp
+  // turned (solid.bottom - FLIGHT_CEILING) into a target centre y, which is
+  // negative in this exact setup.
+  {
+    Level lv;
+    lv.name = "flipped-ship-regression";
+    lv.floorY = 0.0f;
+    lv.length = 1000.0f;
+    Object ceilingPiece;
+    ceilingPiece.kind = Kind::Solid;
+    ceilingPiece.x = 1.5f;
+    ceilingPiece.y = 200.0f;
+    ceilingPiece.hw = 15.0f;
+    ceilingPiece.hh = 15.0f;
+    lv.add(ceilingPiece);
+    lv.finalize();
+
+    Sim sim(&lv);
+    State st = sim.state();
+    st.mode = Mode::Ship;
+    st.flip = true;
+    st.onGround = false;
+    st.y = 100.0f;
+    st.vy = 0.0f;
+    sim.restore(st);
+    sim.step(false);
+    check(!sim.state().dead && sim.state().y >= lv.floorY + sim.state().halfH() &&
+              sim.state().y > 80.0f,
+          "inverted ship never teleports below floor from remote ceiling");
+  }
+
   // 3. Determinism: same inputs => bit-identical state.
   {
     Level lv = makeTrainingLevel(3, 7);

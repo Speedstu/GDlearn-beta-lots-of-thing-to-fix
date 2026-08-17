@@ -109,8 +109,11 @@ SolveResult beamSolve(const Level& level, const SolveOptions& opts) {
 
         // x matters when speed-portal histories diverge.  The height/ground
         // terms are deliberately weak: survival remains the hard constraint.
-        float score = ns.x + 0.02f * (ns.y * ns.gdir()) +
-                      (ns.onGround ? 0.5f : 0.0f);
+        const bool flight = ns.mode == Mode::Ship || ns.mode == Mode::Ufo ||
+                            ns.mode == Mode::Wave || ns.mode == Mode::Swing;
+        float score = flight ? ns.x
+                             : ns.x + 0.02f * (ns.y * ns.gdir()) +
+                                   (ns.onGround ? 0.5f : 0.0f);
         if (guided) {
           // Average path likelihood is stable across level length and prevents
           // a single uncertain decision from dominating thousands of ticks.

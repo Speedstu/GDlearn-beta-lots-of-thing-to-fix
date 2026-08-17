@@ -213,35 +213,11 @@ void Sim::resolveWorld(float prevY) {
       if (diesOnTouch(st_.mode)) st_.dead = true;
     }
 
-    // Symmetric clamp for flipped gravity.
-    // In flipped mode the player falls TOWARD high-y (positive vy).  Find
-    // the lowest solid whose BOTTOM face is above the player top (= ceiling
-    // candidate), then limit the player to FLIGHT_CEILING below that face.
-    // If no ceiling block exists, cap at level floor + 2*FLIGHT_CEILING
-    // (an absolute 20-block ceiling above the floor, generous for any
-    // legitimate red-pad jump while still much lower than CEILING_Y=80).
-    if (st_.flip && isFlightMode(st_.mode)) {
-      float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;
-      if (gidx) {
-        const std::vector<Object>& ar = level_->objects();
-        for (int i = 0; i < gn; ++i) {
-          const Object& o = ar[gidx[i]];
-          if (o.kind != Kind::Solid) continue;
-          if (std::fabs(o.x - st_.x) > o.hw + hw) continue;
-          const float botY = o.y - o.hh;
-          if (botY > st_.y + hh - 2.0f) {        // solid above player
-            const float cand = botY - phys::FLIGHT_CEILING;
-            if (cand < flipRef) flipRef = cand;   // take the lowest
-          }
-        }
-      }
-      // flipRef is now the maximum allowed player CENTRE y.
-      if (st_.y + hh >= flipRef + hh) {
-        st_.y = flipRef;
-        if (st_.vy > 0) st_.vy = 0;
-        if (diesOnTouch(st_.mode)) st_.dead = true;
-      }
-    }
+    // No second flipped-gravity clamp is needed here: the dynamic
+    // flight corridor above is defined in world space and already applies to
+    // both gravity directions. A second remote clamp used to teleport inverted
+    // ships below floorY when a nearby solid was less than one corridor-height
+    // above them.
   }
 
   int n = 0;
