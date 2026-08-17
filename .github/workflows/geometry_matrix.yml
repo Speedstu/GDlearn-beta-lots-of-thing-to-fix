@@ -1,0 +1,69 @@
+name: geometry matrix 120 193 468 991
+
+on:
+  push:
+    branches: [agent/gdlearn2-geometry-matrix]
+    paths: [.github/workflows/geometry_matrix.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [exact, no193, no120, no193no120]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply variant
+        shell: python
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+          v=os.environ['VARIANT']
+          old='''    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
+          new='''    if oid in HAZARD_IDS:\n        if oid == 991:\n            bhw, bhh = 1.200195315 * sx, 1.600006105 * sy\n        else:\n            bhw, bhh = 4.0 * sx, 8.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        if oid == 468:\n            bhw, bhh = 15.0 * sx, 0.75 * sy\n        else:\n            bhw, bhh = 15.0 * sx, 15.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
+          if old not in s: raise SystemExit('classify anchor missing')
+          s=s.replace(old,new,1)
+          if v in ('no193','no193no120'):
+              s=s.replace('193, 194, 195, 196, 198, 199,','194, 195, 196, 198, 199,',1)
+          if v in ('no120','no193no120'):
+              s=s.replace('118, 119, 120, 121, 122,','118, 119, 121, 122,',1)
+          p.write_text(s)
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          ./build/gdlearn selftest
+      - name: Solve official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          ./build/gdlearn solve /tmp/l/c.gdl --beam 6144 --widen 0 --max-frames 16000 --stall 6000 --out /tmp/c.macro | tee /tmp/c.log
+          ./build/gdlearn solve /tmp/l/d.gdl --beam 6144 --widen 0 --max-frames 16000 --stall 6000 --out /tmp/d.macro | tee /tmp/d.log
+          ./build/gdlearn solve /tmp/l/t.gdl --beam 24576 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/t.macro | tee /tmp/t.log
+          set -e
+          python3 - <<'PY'
+          import os,re,json
+          def m(p):
+              t=open(p).read(); x=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?verify\s+([0-9.]+)%',t)
+              if not x: return -1
+              a,b=map(float,x[-1]);
+              if abs(a-b)>.02: raise SystemExit('replay mismatch')
+              return a
+          r={'variant':os.environ.get('VARIANT','?'),'club':m('/tmp/c.log'),'toe2':m('/tmp/t.log'),'dead':m('/tmp/d.log')}
+          print('GEOMETRY_RESULT',json.dumps(r,sort_keys=True))
+          PY
+        env:
+          VARIANT: ${{ matrix.variant }}
