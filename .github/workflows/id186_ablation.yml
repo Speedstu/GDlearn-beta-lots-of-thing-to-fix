@@ -1,0 +1,59 @@
+name: ID186 collision ablation
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/id186_ablation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablate:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - only186
+          - family185_188
+          - family185_192
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply minimal converter ablation
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+          old='    *range(185, 193),\n'
+          if old not in s: raise SystemExit('classic 185..192 range not found')
+          mode=os.environ['MODE']
+          if mode=='only186':
+              repl='    185, 187, 188, 189, 190, 191, 192,\n'
+          elif mode=='family185_188':
+              repl='    189, 190, 191, 192,\n'
+          else:
+              repl=''
+          p.write_text(s.replace(old,repl,1))
+      - name: Build and measure official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          echo "=== MODE ${{ matrix.mode }} ==="
+          for k in c t d; do /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 2400 --out /tmp/$k.macro; done
+          echo '=== TOE2 BEAM 1536 ==='
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 24000 --stall 6000 --out /tmp/t1536.macro
+          set -e
