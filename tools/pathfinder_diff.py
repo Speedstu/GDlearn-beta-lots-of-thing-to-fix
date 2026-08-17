@@ -60,11 +60,13 @@ def main():
     gd={}
     for l in gdtrace.read_text().splitlines():
         p=l.split()
-        if len(p)>=9 and p[0].isdigit(): gd[int(p[0])]=(float(p[2])*30,float(p[3])*30,float(p[4]),int(p[7]),int(p[8]))
+        if len(p)>=9 and p[0].isdigit():
+            # x,y,vy,mode,flip,ground,hold
+            gd[int(p[0])]=(float(p[2])*30,float(p[3])*30,float(p[4]),int(p[7]),int(p[8]),int(p[5]),int(p[1]))
     ref={}
     for l in reftrace.read_text().splitlines():
         p=l.split()
-        if len(p)>=8: ref[int(p[0])]=(float(p[1]),float(p[2]),float(p[3]),int(p[4]),int(p[5]),int(p[7]))
+        if len(p)>=8: ref[int(p[0])]=(float(p[1]),float(p[2]),float(p[3]),int(p[4]),int(p[5]),int(p[6]),int(p[7]))
     first=None
     for i in sorted(set(gd)&set(ref)):
         g=gd[i]; r=ref[i]; delta=(abs(g[0]-r[0]),abs(g[1]-r[1]),abs(g[2]-r[2]))
@@ -73,8 +75,12 @@ def main():
     print('FIRST_DIVERGENCE',first)
     if first:
         i=first[0]
-        print('GD_WINDOW'); [print(j,gd[j]) for j in range(max(0,i-8),i+9) if j in gd]
-        print('REF_WINDOW'); [print(j,ref[j]) for j in range(max(0,i-8),i+9) if j in ref]
+        print('GD_WINDOW x y vy mode flip ground hold action')
+        for j in range(max(0,i-8),i+9):
+            if j in gd: print(j,gd[j],acts[j] if j<len(acts) else '?')
+        print('REF_WINDOW x y vy mode flip ground dead action')
+        for j in range(max(0,i-8),i+9):
+            if j in ref: print(j,ref[j],acts[j] if j<len(acts) else '?')
     print('FRAMES',{'gd':len(gd),'pathfinder':len(ref),'actions':len(acts)})
     return 0
 
