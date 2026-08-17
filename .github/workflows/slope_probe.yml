@@ -1,0 +1,128 @@
+name: probe classic slopes
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/slope_probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  raw-props:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dump slope object transforms
+        shell: python
+        run: |
+          from collections import Counter, defaultdict
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'tools')
+          import gmd_to_gdl as g
+          ids={665,666,*range(681,703)}
+          for n in (14,18,20):
+              dec=g.try_decompress(Path(f'levels/{n}.gmd').read_bytes())
+              if dec is None: raise SystemExit(f'decode failed {n}')
+              count=Counter(); patterns=defaultdict(Counter)
+              examples={}
+              for seg in dec.decode('utf-8','ignore').split(';')[1:]:
+                  if ',' not in seg: continue
+                  p=g.parse_props(seg); oid=g._i(p,1,0)
+                  if oid not in ids: continue
+                  count[oid]+=1
+                  pat=(g._i(p,4,0),g._i(p,5,0),g._f(p,6,0.0),g._f(p,32,1.0),g._f(p,128,g._f(p,32,1.0)),g._f(p,129,g._f(p,32,1.0)))
+                  patterns[oid][pat]+=1
+                  examples.setdefault((oid,pat), dict(sorted(p.items())))
+              print('LEVEL',n,'COUNTS',dict(sorted(count.items())))
+              for oid in sorted(patterns):
+                  print('ID',oid)
+                  for pat,c in patterns[oid].most_common():
+                      print('  PATTERN',pat,'COUNT',c,'EXAMPLE',examples[(oid,pat)])
+
+  upper-bound:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, drop_681_694, drop_665_702]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch diagnostic removal
+        shell: python
+        env:
+          V: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v=os.environ['V']
+          if v=='baseline': print(v); raise SystemExit(0)
+          p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+          marker='''# gdl PortalKind enum values: cube, ship, ball, ufo, wave, robot, spider,\n'''
+          if marker not in s: raise SystemExit('marker missing')
+          if v=='drop_681_694': ids=list(range(681,695))
+          else: ids=[665,666,*range(681,703)]
+          stmt='SOLID_IDS.difference_update({' + ','.join(map(str,ids)) + '})\n\n'
+          p.write_text(s.replace(marker,stmt+marker,1))
+      - name: Build and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          /tmp/build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 8192 --widen 0 --max-frames 43200 --stall 16000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 26000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 22000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def p(k):
+              t=Path('/tmp/log/'+k+'.log').read_text(); m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+              return float(m[-1]) if m else -1
+          print('RESULT',{'clubstep':p('c'),'toe2':p('t'),'deadlocked':p('d')})
+          PY
+
+  toe2-blocker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build solve trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/t.gdl --name 'Theory of Everything 2'
+          set +e
+          /tmp/build/gdlearn solve /tmp/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 26000 --out /tmp/t.macro | tee /tmp/solve.log
+          set -e
+          /tmp/build/gdlearn trace /tmp/t.gdl --macro /tmp/t.macro --frames 25000 --from 0 > /tmp/trace.log
+      - name: Resolve blocker
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+          print('SOLVE_TAIL',Path('/tmp/solve.log').read_text().splitlines()[-4:])
+          pat=re.compile(r'\s*(\d+)\s+(HOLD|\.\.\.\.)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)')
+          rows=[]
+          for line in Path('/tmp/trace.log').read_text().splitlines():
+              m=pat.match(line)
+              if m: rows.append({'frame':int(m[1]),'xbl':float(m[3]),'ybl':float(m[4]),'vy':float(m[5]),'ground':int(m[6]),'dead':int(m[7]),'mode':int(m[8]),'flip':int(m[9]),'pad':int(m[10]),'orb':int(m[11]),'contact':int(m[12]),'deathuid':int(m[13])})
+          if not rows: raise SystemExit('trace parse failed')
+          dead=next((r for r in rows if r['dead']),rows[-1]); print('DEATH_STATE',dead)
+          objs=[x for x in Path('/tmp/t.gdl').read_text().splitlines() if x.startswith('o ')]
+          u=dead['deathuid']; print('DEATH_OBJECT',u,objs[u] if 0<=u<len(objs) else '<boundary>')
+          x=dead['xbl']*30.0
+          for i,o in enumerate(objs):
+              q=o.split()
+              if abs(float(q[3])-x)<=100: print('NEAR',i,o)
