@@ -312,6 +312,31 @@ void Sim::resolveWorld(const State& prev) {
       }
       continue;
     }
+
+    const float surfaceTop = o.y + o.hh * g;      // support face in gravity space
+    const float surfaceBottom = o.y - o.hh * g;   // opposite face
+    const float prevFeet = prevY - hh * g;
+    const float prevHead = prevY + hh * g;
+    const bool falling = st_.vy * g <= 0.0f;
+
+    // Pathfinder's Block::collide keeps a cube attached to a support surface
+    // through a vertical `clip` tolerance of 10 world units.  The old gdlearn
+    // broad-phase required strict outer-AABB overlap, so a cube exactly resting
+    // on a block alternated grounded/airborne every native tick.
+    const bool horizontalSupport =
+        std::fabs(st_.x - o.x) <= (hw + o.hw);
+    const float supportGap = ((st_.y - hh * g) - surfaceTop) * g;
+    if (prev.onGround && falling && horizontalSupport &&
+        supportGap >= -1.0f && supportGap <= 10.0f) {
+      st_.y = surfaceTop + hh * g;
+      st_.vy = 0.0f;
+      st_.onGround = true;
+      st_.jumpHold = 0;
+      lastContactUid_ = o.uid;
+      landed = true;
+      continue;
+    }
+
     if (!aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) continue;
 
     if (diesOnTouch(st_.mode)) {
@@ -320,12 +345,6 @@ void Sim::resolveWorld(const State& prev) {
       st_.dead = true;
       return;
     }
-    const float surfaceTop = o.y + o.hh * g;      // "floor" side in grav space
-    const float surfaceBottom = o.y - o.hh * g;   // "ceiling" side
-    const float prevFeet = prevY - hh * g;
-    const float prevHead = prevY + hh * g;
-    const bool falling = st_.vy * g <= 0.0f;
-
     if (falling && (prevFeet - surfaceTop) * g >= -1.0f) {
       st_.y = surfaceTop + hh * g;
       st_.vy = 0;
