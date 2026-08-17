@@ -1,0 +1,70 @@
+name: corner forgiveness matrix
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/corner_forgiveness_matrix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, falling_only, tol_1, tol_2, tol_4_5, off]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch corner rule
+        shell: python
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v=os.environ['VARIANT']
+          if v=='baseline':
+              raise SystemExit(0)
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          old='''      if (pen > 0.0f && pen <= hh) {\n'''
+          repl={
+            'falling_only':'''      if (falling && pen > 0.0f && pen <= hh) {\n''',
+            'tol_1':'''      if (pen > 0.0f && pen <= 1.0f) {\n''',
+            'tol_2':'''      if (pen > 0.0f && pen <= 2.0f) {\n''',
+            'tol_4_5':'''      if (pen > 0.0f && pen <= bhh) {\n''',
+            'off':'''      if (false && pen > 0.0f) {\n''',
+          }[v]
+          if old not in s: raise SystemExit('corner anchor missing')
+          p.write_text(s.replace(old,repl,1))
+          print('variant',v)
+
+      - name: Build selftest and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def p(k):
+              t=Path('/tmp/log/'+k+'.log').read_text()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+              return float(m[-1]) if m else -1
+          print('RESULT',{'clubstep':p('c'),'toe2':p('t'),'deadlocked':p('d')})
+          PY
