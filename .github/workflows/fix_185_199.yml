@@ -1,0 +1,101 @@
+name: one-shot fix classic IDs 185-199
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/fix_185_199.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch IDs from reverse-engineered Object::create table
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('tools/gmd_to_gdl.py')
+          s=p.read_text()
+          old='''    193, 194, 195, 196, 198, 199,\n    204, 205, 206, 207, 208, 209,\n    *range(247, 260),\n    71, 72, 73, 74, 75, 76, 77, 78,\n    *range(118, 130),\n    *range(185, 193),\n    *range(661, 696),\n'''
+          new='''    # Exact classic block subset around the former false wall family.\n    192, 194, 195, 196, 197,\n    204, 206, 207, 208, 209,\n    *range(247, 260),\n    71, 72, 73, 74, 75, 76, 77, 78,\n    *range(118, 130),\n    *range(661, 665),\n'''
+          if old not in s:
+              raise SystemExit('expected legacy solid family not found')
+          s=s.replace(old,new,1)
+
+          anchor='''HAZARD_IDS = {\n    8, 9, 39, 61, 103, 135, 143, 205,\n    363, 364, 365, 392, 393, 394, 446, 447,\n    667, 720, 721, 722, 768, 769, 989, 991,\n}\n'''
+          repl='''HAZARD_IDS = {\n    8, 9, 39, 61, 103, 135, 143, 205,\n    363, 364, 365, 392, 393, 394, 446, 447,\n    667, 720, 721, 722, 768, 769, 989, 991,\n    # Classic sawblade IDs previously (incorrectly) treated as solid blocks.\n    185, 186, 187, 188,\n}\n\n# Full sizes for the classic sawblade family from the reverse-engineered\n# Object::create table.  Keep 189-191/193/198/199 ignored: that source does\n# not classify them as gameplay collision objects.\nSAWBLADE_SIZE = {\n    185: (2.8500001, 2.8500001),\n    186: (32.3, 32.3),\n    187: (21.960001, 21.960001),\n    188: (12.6000004, 12.6000004),\n}\n'''
+          if anchor not in s:
+              raise SystemExit('hazard set anchor not found')
+          s=s.replace(anchor,repl,1)
+
+          old='''    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
+          new='''    if oid in HAZARD_IDS:\n        if oid in SAWBLADE_SIZE:\n            w, h = SAWBLADE_SIZE[oid]\n            hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)\n        else:\n            hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        # IDs 192/194..197 have non-30x30 measured sizes.\n        classic = {192:(30.0,21.0), 194:(21.0,21.0), 195:(15.0,15.0),\n                   196:(15.0,8.0), 197:(22.0,21.0)}\n        if oid in classic:\n            w, h = classic[oid]\n            hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)\n        else:\n            hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
+          if old not in s:
+              raise SystemExit('classifier tail not found')
+          p.write_text(s.replace(old,new,1))
+
+      - name: Build and selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+
+      - name: Same-beam official demon regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          echo '--- ToE2 x=430..500 after patch ---'
+          awk '$1=="o" && $4>=430 && $4<=500 {print}' /tmp/l/t.gdl
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 1440 --out /tmp/$k.macro | tee /tmp/log/$k.log
+          done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 12000 --stall 2400 --out /tmp/t1536.macro | tee /tmp/log/t1536.log
+          set -e
+
+      - name: Require no-regression and ToE2 blocker improvement
+        shell: python
+        run: |
+          import re
+          baseline={'c':6.00,'t':1.61,'d':6.41}
+          r={}
+          for k in baseline:
+              txt=open('/tmp/log/'+k+'.log').read()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',txt)
+              if not m: raise SystemExit('missing '+k)
+              r[k]=float(m[-1])
+          txt=open('/tmp/log/t1536.log').read()
+          m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',txt)
+          t1536=float(m[-1]) if m else -1
+          print('BASE',baseline,'NEW',r,'TOE2_B1536',t1536)
+          if r['c'] < 5.75 or r['d'] < 6.0:
+              raise SystemExit('material regression on Clubstep/Deadlocked')
+          if max(r['t'], t1536) < 2.0:
+              raise SystemExit('ID correction did not clear the ToE2 x~465 blocker')
+
+      - name: Commit source-grounded fix and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix_185_199.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/gmd_to_gdl.py .github/workflows/fix_185_199.yml
+          git commit -m 'fix classic sawblade and block IDs 185-199'
+          git push origin HEAD:agent/gdlearn2-replace
