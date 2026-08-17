@@ -1,0 +1,47 @@
+name: apply cube v6
+on: {push: {branches: [agent/gdlearn2-physics-v6], paths: [.github/workflows/apply_cube_v6.yml]}}
+permissions: {contents: write}
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/apply_cube_v6.py
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j"$(nproc)" >/dev/null
+          ./build/gdlearn selftest
+          cat >/tmp/flat.gdl <<'EOF'
+          # gdlearn level v1
+          name flat_v6
+          floor 0
+          roof 0
+          length 1000
+          EOF
+          cat >/tmp/one.macro <<'EOF'
+          # gdlearn macro v2 native-240-tps
+          level flat_v6
+          fps 240
+          progress 0
+          frames 1
+          r 1 1
+          EOF
+          ./build/gdlearn trace /tmp/flat.gdl --macro /tmp/one.macro --frames 1 | tee /tmp/trace
+          python3 - <<'PY'
+          rows=[l.split() for l in open('/tmp/trace') if l.split() and l.split()[0].isdigit()]
+          if not rows: raise SystemExit('no trace row')
+          r=rows[0]; y=float(r[3]); vy=float(r[4]); print('FIRST_JUMP_REFERENCE_CHECK',y,vy)
+          if abs(y-0.5)>0.001: raise SystemExit('fresh press moved in same tick')
+          if abs(vy-2.4669)>0.015: raise SystemExit('fresh press velocity differs from Pathfinder')
+          PY
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/physics.hpp src/core/sim.cpp
+          git rm tools/apply_cube_v6.py .github/workflows/apply_cube_v6.yml
+          git commit -m 'match native GD cube tick order and jump physics'
+          git push
