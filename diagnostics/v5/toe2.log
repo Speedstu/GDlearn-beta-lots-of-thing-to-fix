@@ -1,0 +1,15 @@
+solving 'Theory of Everything 2' (4245 objects, 963 blocks)
+  [beam] tick      0  best   0.00%  beam     2
+  [beam] tick    240  best   1.08%  beam    90
+  [beam] tick    480  best   2.16%  beam  4001
+  [beam] tick    720  best   3.24%  beam  1041
+  [beam] tick    960  best   4.32%  beam    95
+  [beam] tick   1200  best   5.39%  beam  1170
+  [beam] tick   1440  best   6.47%  beam   374
+  [beam] tick   1680  best   7.55%  beam    54
+  [beam] tick   1920  best   8.63%  beam   200
+  [beam] tick   2160  best   9.71%  beam    96
+  [beam] tick   2400  best  10.79%  beam    96
+partial  progress 11.19%  frames 2492  expanded 3581k  0.9s  verify 11.19%
+macro -> /tmp/t.macro
+  +194 -195 +215 -216 +230 -231 +233 -238 +244 -246 +249 -250 +253 -254 +270 -271 +304 -309 +324 -325 +401 -414 +426 -429 +430 -431 +432 -434 +435 -436 +439 -443 +444 -445 +446 -447 +451 -452 +453 -456 ...
