@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "core/sim.hpp"
+#include "core/slope_collision.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -247,6 +248,15 @@ void Sim::resolveWorld(float prevY) {
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
     if (o.kind != Kind::Solid) continue;
+    if (slope::solidSlope(o)) {
+      const bool touched = slope::resolveSolid(st_, o, prevY);
+      if (touched) {
+        lastContactUid_ = o.uid;
+        if (st_.dead) { deathUid_ = o.uid; return; }
+        if (st_.onGround) landed = true;
+      }
+      continue;
+    }
     if (!aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) continue;
 
     if (diesOnTouch(st_.mode)) {
@@ -332,9 +342,11 @@ void Sim::resolveWorld(float prevY) {
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
     if (o.kind != Kind::Hazard) continue;
-    const bool hit = o.sub == 1
-        ? ellipseAabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)
-        : aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh);
+    const bool hit = slope::hazardSlope(o)
+        ? slope::hazardHit(st_, o)
+        : (o.sub == 1
+            ? ellipseAabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)
+            : aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh));
     if (hit) {
       lastContactUid_ = o.uid;
       deathUid_ = o.uid;
@@ -413,8 +425,9 @@ bool Sim::solidAt(float x, float y) const {
   const std::vector<Object>& objs = level_->objects();
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
-    if (o.kind == Kind::Solid && aabb(x, y, 0.5f, 0.5f, o.x, o.y, o.hw, o.hh))
-      return true;
+    if (o.kind != Kind::Solid) continue;
+    if (slope::solidSlope(o)) { if (slope::pointInsideSolid(o, x, y)) return true; }
+    else if (aabb(x, y, 0.5f, 0.5f, o.x, o.y, o.hw, o.hh)) return true;
   }
   return false;
 }
@@ -428,7 +441,8 @@ bool Sim::hazardAt(float x, float y) const {
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
     if (o.kind != Kind::Hazard) continue;
-    if (o.sub == 1) {
+    if (slope::hazardSlope(o)) { if (slope::pointInsideHazard(o, x, y)) return true; }
+    else if (o.sub == 1) {
       const float dx=(x-o.x)/std::max(0.001f,o.hw);
       const float dy=(y-o.y)/std::max(0.001f,o.hh);
       if (dx*dx+dy*dy <= 1.0f) return true;

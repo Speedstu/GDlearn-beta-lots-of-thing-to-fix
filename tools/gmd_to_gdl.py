@@ -196,6 +196,21 @@ def classify(props: Dict[int, str]) -> Optional[GdlObject]:
         return GdlObject('pad', PADS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in ORBS:
         return GdlObject('orb', ORBS[oid], x, y, 18.0 * sx, 18.0 * sy, oid)
+    def slope_orient():
+        q = int(round(rot / 90.0))
+        fx, fy = _i(props, 4, 0) == 1, _i(props, 5, 0) == 1
+        if fx and fy: q += 2
+        elif fx: q += 1
+        elif fy: q += 3
+        return q % 4
+
+    if oid in pg.SLOPE_SOLID_SIZES:
+        w, h = pg.SLOPE_SOLID_SIZES[oid]
+        return GdlObject('solid', 16 + slope_orient(), x, y, 0.5*w*sx, 0.5*h*sy, oid)
+    if oid in pg.SLOPE_HAZARD_SIZES:
+        w, h = pg.SLOPE_HAZARD_SIZES[oid]
+        return GdlObject('hazard', 32 + slope_orient(), x, y, 0.5*w*sx, 0.5*h*sy, oid)
+
     if oid in pg.SAW_RADII:
         r = pg.SAW_RADII[oid]
         return GdlObject('hazard', 1, x, y, r * sx, r * sy, oid)
