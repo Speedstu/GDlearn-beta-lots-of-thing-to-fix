@@ -1,0 +1,68 @@
+name: block inner hitbox fidelity ablation
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/inner_hitbox_ablation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablate:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - block_inner
+          - block_inner_hazardlast
+          - reference_boxes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch collision boxes
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          mode=os.environ['MODE']
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          old='''  const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);\n  const float lhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);\n'''
+          new='''  const float ihw = hw * phys::HITBOX_LETHAL_SCALE;\n  const float ihh = hh * phys::HITBOX_LETHAL_SCALE;\n  const float hhw = ''' + ('hw' if mode=='reference_boxes' else 'hw * (1.0f - phys::HITBOX_LETHAL_SCALE)') + ''';\n  const float hhh = ''' + ('hh' if mode=='reference_boxes' else 'hh * (1.0f - phys::HITBOX_LETHAL_SCALE)') + ''';\n'''
+          if old not in s: raise SystemExit('lethal box declaration missing')
+          s=s.replace(old,new,1)
+          # Hazard pass gets its dedicated box.
+          s=s.replace('aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)',
+                      'aabb(st_.x, st_.y, hhw, hhh, o.x, o.y, o.hw, o.hh)',1)
+          # Remaining solid-side test gets true 9x9 inner box.
+          s=s.replace('aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)',
+                      'aabb(st_.x, st_.y, ihw, ihh, o.x, o.y, o.hw, o.hh)',1)
+          if mode=='block_inner_hazardlast':
+              hazard='''  // Pass 2: hazards (inner hitbox), then solids, then boosts.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, hhw, hhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n\n'''
+              if hazard not in s: raise SystemExit('hazard pass missing')
+              s=s.replace(hazard,'',1)
+              close='''\n}\n\nvoid Sim::applyPad'''
+              last='''\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, hhw, hhh, o.x, o.y, o.hw, o.hh)) { st_.dead = true; return; }\n  }\n'''
+              s=s.replace(close,last+close,1)
+          p.write_text(s)
+      - name: Build and measure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          echo "=== MODE ${{ matrix.mode }} ==="
+          for k in c t d; do /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 2400 --out /tmp/$k.macro; done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 30000 --stall 6000 --out /tmp/t1536.macro
+          set -e
