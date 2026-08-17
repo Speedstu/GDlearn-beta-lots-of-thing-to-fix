@@ -1,0 +1,27 @@
+# CMake / compiler output
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.o
+*.obj
+*.d
+*.exe
+*.pdb
+
+# Training output (verified source levels/macros remain tracked)
+runs/
+champion/
+macros_native/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
