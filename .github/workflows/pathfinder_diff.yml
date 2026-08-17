@@ -88,4 +88,4 @@ jobs:
             for j in range(max(0,i-8),i+9):
               if j in ref: print(j,ref[j])
           print('reference_frames',len(ref),'gd_frames',len(gd))
-# v6 rerun
+# exact effects rerun
