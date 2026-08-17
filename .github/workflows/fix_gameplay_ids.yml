@@ -1,0 +1,96 @@
+name: one-shot classic gameplay ID fix
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/fix_gameplay_ids.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Correct classic portal pad and orb IDs
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('tools/gmd_to_gdl.py')
+          s = p.read_text()
+          start = s.index('PORTALS = {')
+          end = s.index('\n\n\n@dataclass', start)
+          block = '''PORTALS = {
+              # Classic vehicle portals.
+              12: 0,    # cube
+              13: 1,    # ship
+              47: 2,    # ball
+              111: 3,   # UFO
+              660: 4,   # wave
+              # Later vehicle modes.
+              745: 5,   # robot
+              1331: 6,  # spider
+              1933: 7,  # swing
+              # Gravity / size portals.
+              10: 8,
+              11: 9,
+              99: 10,
+              101: 11,
+          }
+          SPEEDS = {200: 0, 201: 1, 202: 2, 203: 3, 1334: 4}
+          # gdl PadKind: yellow, pink, red, blue.
+          PADS = {35: 0, 140: 1, 1332: 2, 67: 3, 1524: 2, 1697: 3}
+          # gdl OrbKind: yellow, pink, red, blue, green, black, dash.
+          ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,
+                  1594: 6, 1704: 6, 1751: 6}'''
+          p.write_text(s[:start] + block + s[end:])
+
+      - name: Build and regression-check three official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 \
+              --max-frames 43200 --stall 1440 --out /tmp/$k.macro | tee /tmp/log/$k.log
+          done
+          set -e
+          python3 - <<'PY'
+          import re
+          floor={'c':5.5,'t':1.4,'d':5.9}
+          result={}
+          for k in floor:
+              txt=open('/tmp/log/'+k+'.log').read()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',txt)
+              if not m: raise SystemExit('missing progress '+k)
+              result[k]=float(m[-1])
+          print('mapping regression result',result)
+          bad=[k for k in result if result[k] < floor[k]]
+          if bad: raise SystemExit('mapping fix regressed: '+','.join(bad))
+          PY
+
+      - name: Commit validated mapping fix and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix_gameplay_ids.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/gmd_to_gdl.py .github/workflows/fix_gameplay_ids.yml
+          git commit -m 'fix classic GD portal pad and orb IDs'
+          git push origin HEAD:agent/gdlearn2-replace
