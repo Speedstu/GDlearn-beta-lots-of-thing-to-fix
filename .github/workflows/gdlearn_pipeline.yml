@@ -24,5 +24,23 @@ jobs:
         run: cmake --build build -j"$(nproc)"
       - name: Core selftest
         run: ./build/gdlearn selftest
+      - name: Convert bundled real level
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/gmd_to_gdl.py levels/1.gmd -o /tmp/1.gdl --hitbox-dump /tmp/1.csv
+          test -s /tmp/1.gdl
+          test -s /tmp/1.csv
+          OBJECTS="$(grep -c '^o ' /tmp/1.gdl)"
+          echo "converted gameplay objects: $OBJECTS"
+          test "$OBJECTS" -gt 20
+          grep '^# gdlearn level v1' /tmp/1.gdl
+      - name: Reject obvious legacy timing regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -R --line-number -E '60 entries per second|one 60Hz gameplay|default 60-Hz|fps = 60' src tools || {
+            echo 'legacy timing assumption reintroduced'; exit 1;
+          }
       - name: Short throughput benchmark
         run: ./build/gdlearn bench --steps 1000000
