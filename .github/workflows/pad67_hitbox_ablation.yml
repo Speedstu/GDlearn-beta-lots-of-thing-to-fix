@@ -1,0 +1,54 @@
+name: blue pad ID67 hitbox ablation
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/pad67_hitbox_ablation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - exact67
+          - exact_classic_pads
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch pad hitboxes only
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+          old="""    if oid in PADS:\n        return GdlObject('pad', PADS[oid], x, y, 15.0 * sx, 5.0 * sy, oid)\n"""
+          if old not in s: raise SystemExit('pad classifier missing')
+          if os.environ['MODE']=='exact67':
+              new="""    if oid in PADS:\n        if oid == 67:\n            return GdlObject('pad', PADS[oid], x, y, 12.5 * sx, 3.0 * sy, oid)\n        return GdlObject('pad', PADS[oid], x, y, 15.0 * sx, 5.0 * sy, oid)\n"""
+          else:
+              new="""    if oid in PADS:\n        dims = {35:(12.5,2.0), 140:(12.5,2.5), 67:(12.5,3.0)}\n        hw, hh = dims.get(oid, (15.0,5.0))\n        return GdlObject('pad', PADS[oid], x, y, hw * sx, hh * sy, oid)\n"""
+          p.write_text(s.replace(old,new,1))
+      - name: Build and measure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          echo "=== MODE ${{ matrix.mode }} ==="
+          for k in c t d; do /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/$k.macro; done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 30000 --stall 6000 --out /tmp/t1536.macro
+          set -e
