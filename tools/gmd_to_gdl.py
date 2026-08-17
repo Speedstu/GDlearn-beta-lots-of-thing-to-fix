@@ -183,10 +183,18 @@ def classify(props: Dict[int, str]) -> Optional[GdlObject]:
     if oid in ORBS:
         return GdlObject('orb', ORBS[oid], x, y, 18.0 * sx, 18.0 * sy, oid)
     if oid in HAZARD_IDS:
-        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
+        if oid == 991:
+            bhw, bhh = 2.40039063 * 0.5 * sx, 3.20001221 * 0.5 * sy
+        else:
+            bhw, bhh = 4.0 * sx, 8.0 * sy
+        hw, hh = _rotated_half_extents(bhw, bhh, rot)
         return GdlObject('hazard', 0, x, y, hw, hh, oid)
     if oid in SOLID_IDS:
-        hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)
+        if oid == 468:
+            bhw, bhh = 15.0 * sx, 0.75 * sy
+        else:
+            bhw, bhh = 15.0 * sx, 15.0 * sy
+        hw, hh = _rotated_half_extents(bhw, bhh, rot)
         return GdlObject('solid', 0, x, y, hw, hh, oid)
     return None
 
