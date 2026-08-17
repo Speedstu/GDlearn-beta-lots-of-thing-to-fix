@@ -1,0 +1,15 @@
+name: toe2 reason
+on: {push: {branches: [agent/gdlearn2-fidelity-v4], paths: [.github/workflows/toe2_reason.yml]}}
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/core/sim.cpp');s=p.read_text();s=s.replace('if (st_.y < phys::KILL_BELOW || st_.y > phys::CEILING_Y) st_.dead = true;','if(st_.y<phys::KILL_BELOW){deathUid_=-104;st_.dead=true;} if(st_.y>phys::CEILING_Y){deathUid_=-105;st_.dead=true;}',1);p.write_text(s)
+          p=Path('src/search/beam.cpp');s=p.read_text();s=s.replace('    seen.reserve(cur.size() * 4);\n','    seen.reserve(cur.size() * 4);\n    std::unordered_map<int,int> dc;\n',1);s=s.replace('        if (ns.dead) continue;\n','        if(ns.dead){++dc[sim.deathUid()];continue;}\n',1);s=s.replace('    if (cands.empty()) break;\n','''    if(cands.empty()){std::printf("REASONS");for(auto&z:dc)std::printf(" %d=%d",z.first,z.second);std::printf("\\n");break;}\n''',1);p.write_text(s)
+      - shell: bash
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null && cmake --build build -j"$(nproc)" >/dev/null; python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/t.gdl --name 'Theory of Everything 2'; ./build/gdlearn solve /tmp/t.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/t.macro || true
