@@ -1,0 +1,132 @@
+name: compose candidate v3
+
+on:
+  push:
+    branches: [agent/gdlearn2-candidate-v3]
+    paths: [.github/workflows/compose_candidate_v3.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compose validated source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Rich 848-D observation that already passed PPO/reload/guided-beam
+          # CI and a 3/3 closed-loop DAgger curriculum.
+          git show origin/agent/gdlearn2-obs-v2:src/env/obs.hpp > src/env/obs.hpp
+          git show origin/agent/gdlearn2-obs-v2:src/env/obs.cpp > src/env/obs.cpp
+          # Start converter from measured classic interactive hitboxes.
+          git show origin/agent/gdlearn2-interactives-v2:tools/gmd_to_gdl.py > tools/gmd_to_gdl.py
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+
+          # ID 193 is not a collision object in Pathfinder. Removing it improved
+          # ToE2 70.46 -> 79.09% with exact replay and no regression elsewhere.
+          old='193, 194, 195, 196, 198, 199,'
+          if old not in s: raise SystemExit('ID193 solid anchor missing')
+          s=s.replace(old,'194, 195, 196, 198, 199,',1)
+
+          # Measured geometry for the two terminal objects found by screenshots.
+          old='''    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
+          new='''    if oid in HAZARD_IDS:\n        if oid == 991:\n            bhw, bhh = 1.200195315 * sx, 1.600006105 * sy\n        else:\n            bhw, bhh = 4.0 * sx, 8.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        if oid == 468:\n            bhw, bhh = 15.0 * sx, 0.75 * sy\n        else:\n            bhw, bhh = 15.0 * sx, 15.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
+          if old not in s: raise SystemExit('geometry classification anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+
+      - name: Build and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          ./build/gdlearn selftest | tee /tmp/selftest.log
+          grep 'obs dim = 848' /tmp/selftest.log
+          ./build/gdlearn bench --steps 500000 | tee /tmp/bench.log
+
+      - name: Wide official-demon search
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/v
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/v/club.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/v/toe2.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/v/dead.gdl --name Deadlocked
+          set +e
+          ./build/gdlearn solve /tmp/v/club.gdl --beam 6144 --widen 1 --max-frames 20000 --stall 8000 --out /tmp/v/club.macro | tee /tmp/v/club.log
+          ./build/gdlearn solve /tmp/v/dead.gdl --beam 6144 --widen 1 --max-frames 20000 --stall 8000 --out /tmp/v/dead.macro | tee /tmp/v/dead.log
+          ./build/gdlearn solve /tmp/v/toe2.gdl --beam 24576 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/v/toe2.macro | tee /tmp/v/toe2.log
+          set -e
+          for k in club toe2 dead; do
+            ./build/gdlearn replay /tmp/v/$k.gdl /tmp/v/$k.macro | tee /tmp/v/$k.replay.log || true
+            ./build/gdlearn render /tmp/v/$k.gdl /tmp/v/$k.macro --out /tmp/v/$k.html --max-frames 43200
+          done
+          python3 - <<'PY'
+          import re,json
+          def metric(p):
+              t=open(p).read(); m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?verify\s+([0-9.]+)%',t)
+              if not m: raise SystemExit('metric missing '+p)
+              a,b=map(float,m[-1]);
+              if abs(a-b)>.02: raise SystemExit('replay mismatch '+p)
+              return a
+          r={'club':metric('/tmp/v/club.log'),'toe2':metric('/tmp/v/toe2.log'),'dead':metric('/tmp/v/dead.log')}
+          print('CANDIDATE_V3',json.dumps(r,sort_keys=True))
+          if r['club'] < 9.0: raise SystemExit('Clubstep regression')
+          if r['toe2'] < 78.5: raise SystemExit('ToE2 lost validated geometry gain')
+          if r['dead'] < 6.7: raise SystemExit('Deadlocked regression')
+          PY
+
+      - name: Freeze final-state viewers and screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          for k in ('club','toe2','dead'):
+              p=Path('/tmp/v/'+k+'.html'); s=p.read_text()
+              needle='resize();\nrequestAnimationFrame(tick);'
+              if needle in s:
+                  s=s.replace(needle,"i=Math.max(0,tr.length-1);document.getElementById('scrub').value=i;resize();\nrequestAnimationFrame(tick);",1)
+              p.write_text(s)
+          PY
+          BROWSER="$(command -v google-chrome || command -v chromium || true)"
+          if [[ -n "$BROWSER" ]]; then
+            for k in club toe2 dead; do
+              "$BROWSER" --headless --no-sandbox --disable-gpu --hide-scrollbars --window-size=1600,900 \
+                --screenshot=/tmp/v/$k.png "file:///tmp/v/$k.html" || true
+            done
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-v3-evidence-${{ github.run_id }}
+          path: |
+            /tmp/v/*.png
+            /tmp/v/*.html
+            /tmp/v/*.gdl
+            /tmp/v/*.macro
+            /tmp/v/*.log
+            /tmp/bench.log
+          retention-days: 7
+
+      - name: Commit candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/env/obs.hpp src/env/obs.cpp tools/gmd_to_gdl.py
+          git rm .github/workflows/compose_candidate_v3.yml
+          git commit -m 'compose measured demon geometry with 848D policy observation'
+          git push
