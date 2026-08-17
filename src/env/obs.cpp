@@ -2,6 +2,7 @@
 #include "env/obs.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 
@@ -16,27 +17,20 @@ void encodeObs(const Sim& sim, float* out) {
   const float g = s.gdir();
   const float cell = phys::BLOCK;
 
-  // ---------------------------------------------------------------- grid ----
-  // Column c covers x in [x + c*cell, x + (c+1)*cell).
-  // Row r covers gravity-relative y offset (r - kRows/2) blocks.
   for (int c = 0; c < ObsSpec::kCols; ++c) {
     const float px = s.x + (static_cast<float>(c) + 0.5f) * cell;
     for (int r = 0; r < ObsSpec::kRows; ++r) {
       const float dy = (static_cast<float>(r) - ObsSpec::kRows * 0.5f + 0.5f) * cell;
-      const float py = s.y + dy * g;  // gravity-relative: "up" is always +row
+      const float py = s.y + dy * g;
       const int base = (c * ObsSpec::kRows + r) * ObsSpec::kChannels;
-
       bool solid = sim.solidAt(px, py);
       if (!solid && lv) {
-        // Treat the floor/ceiling planes as solid so the agent sees them.
         if (py <= lv->floorY) solid = true;
         if (lv->roofY > 0 && py >= lv->roofY) solid = true;
       }
-      if (solid) out[base + 0] = 1.0f;
+      if (solid) out[base] = 1.0f;
       if (sim.hazardAt(px, py)) out[base + 1] = 1.0f;
       if (const Object* o = sim.interactiveAt(px, py)) {
-        // Encode which interactive it is as a signed magnitude: cheap, and
-        // keeps the channel count at 3.
         float v = 0.25f;
         if (o->kind == Kind::Orb) v = 0.5f + 0.05f * static_cast<float>(o->sub);
         else if (o->kind == Kind::Pad) v = -0.5f - 0.05f * static_cast<float>(o->sub);
@@ -47,12 +41,11 @@ void encodeObs(const Sim& sim, float* out) {
     }
   }
 
-  // ------------------------------------------------------------- scalars ----
   float* sc = out + ObsSpec::kGrid;
   int i = 0;
   sc[i++] = std::tanh((s.y - (lv ? lv->floorY : 0.0f)) / (10.0f * cell));
   sc[i++] = std::tanh(s.vy / 12.0f);
-  sc[i++] = s.vy * g > 0 ? 1.0f : 0.0f;            // moving "up"
+  sc[i++] = s.vy * g > 0 ? 1.0f : 0.0f;
   sc[i++] = s.speed / phys::SPEEDS[4];
   sc[i++] = s.onGround ? 1.0f : 0.0f;
   sc[i++] = s.flip ? 1.0f : 0.0f;
@@ -63,25 +56,67 @@ void encodeObs(const Sim& sim, float* out) {
   sc[i++] = std::sin(s.rotation * 3.14159265f / 180.0f);
   sc[i++] = std::cos(s.rotation * 3.14159265f / 180.0f);
   for (int m = 0; m < static_cast<int>(Mode::COUNT); ++m)
-    sc[i++] = (static_cast<int>(s.mode) == m) ? 1.0f : 0.0f;
-  for (int t = 0; t < 5; ++t) sc[i++] = (s.tier == t) ? 1.0f : 0.0f;
-  // Sub-block phase. The grid above is quantised to whole blocks, so without
-  // this the network literally cannot see WHERE inside a block it is, and
-  // frame-perfect timing becomes unlearnable. sin/cos make the wrap-around
-  // continuous instead of jumping from 1 back to 0.
+    sc[i++] = static_cast<int>(s.mode) == m ? 1.0f : 0.0f;
+  for (int t = 0; t < 5; ++t) sc[i++] = s.tier == t ? 1.0f : 0.0f;
   {
-    float fx = s.x / cell;
-    fx -= std::floor(fx);
-    float fy = (s.y - (lv ? lv->floorY : 0.0f)) / cell;
-    fy -= std::floor(fy);
+    float fx = s.x / cell; fx -= std::floor(fx);
+    float fy = (s.y - (lv ? lv->floorY : 0.0f)) / cell; fy -= std::floor(fy);
     sc[i++] = fx;
     sc[i++] = std::sin(6.2831853f * fx);
     sc[i++] = std::cos(6.2831853f * fx);
     sc[i++] = fy;
   }
-  // Time-in-attempt is deliberately NOT included: it would let the policy
-  // memorise a level instead of reacting to geometry.
   while (i < ObsSpec::kScalars) sc[i++] = 0.0f;
+
+  if (!lv) return;
+  std::array<const Object*, ObsSpec::kObjectTokens> nearest{};
+  std::array<float, ObsSpec::kObjectTokens> edgeDist{};
+  int count = 0;
+  const float maxX = s.x + static_cast<float>(ObsSpec::kCols) * cell;
+  const float minX = s.x - s.halfW();
+
+  auto consider = [&](const Object& o) {
+    if (o.x + o.hw < minX || o.x - o.hw > maxX) return;
+    for (int k = 0; k < count; ++k)
+      if (nearest[k] && nearest[k]->uid == o.uid) return;
+    const float d = o.x - o.hw - s.x;
+    int pos = count;
+    if (count < ObsSpec::kObjectTokens) ++count;
+    else {
+      if (d >= edgeDist[ObsSpec::kObjectTokens - 1]) return;
+      pos = ObsSpec::kObjectTokens - 1;
+    }
+    while (pos > 0 && d < edgeDist[pos - 1]) {
+      edgeDist[pos] = edgeDist[pos - 1];
+      nearest[pos] = nearest[pos - 1];
+      --pos;
+    }
+    edgeDist[pos] = d;
+    nearest[pos] = &o;
+  };
+
+  for (float qx = s.x; qx <= maxX + 0.5f * Level::kBucket; qx += Level::kBucket) {
+    int n = 0;
+    const int32_t* ids = lv->bucketBegin(qx, &n);
+    if (!ids) continue;
+    const auto& objects = lv->objects();
+    for (int k = 0; k < n; ++k) consider(objects[ids[k]]);
+  }
+
+  float* tok = out + ObsSpec::kGrid + ObsSpec::kScalars;
+  const float look = static_cast<float>(ObsSpec::kCols) * cell;
+  for (int k = 0; k < count; ++k) {
+    const Object& o = *nearest[k];
+    float* t = tok + k * ObsSpec::kTokenFeatures;
+    t[0] = std::clamp((o.x - s.x) / look, -0.25f, 1.25f);
+    t[1] = std::tanh(((o.y - s.y) * g) / (6.0f * cell));
+    t[2] = std::clamp((o.x - o.hw - s.x) / look, -0.25f, 1.25f);
+    t[3] = std::clamp(o.hw / (3.0f * cell), 0.0f, 1.0f);
+    t[4] = std::clamp(o.hh / (3.0f * cell), 0.0f, 1.0f);
+    const int kind = static_cast<int>(o.kind);
+    for (int j = 0; j < 6; ++j) t[5 + j] = kind == j ? 1.0f : 0.0f;
+    t[11] = std::clamp(static_cast<float>(o.sub) / 12.0f, 0.0f, 1.0f);
+  }
 }
 
 }  // namespace gd
