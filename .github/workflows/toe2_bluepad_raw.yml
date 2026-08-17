@@ -1,0 +1,17 @@
+name: toe2 bluepad raw
+on: {push: {branches: [agent/gdlearn2-fidelity-v4], paths: [.github/workflows/toe2_bluepad_raw.yml]}}
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: python
+        run: |
+          import sys
+          sys.path.insert(0,'tools')
+          import gmd_to_gdl as g
+          d=g.try_decompress(open('levels/18.gmd','rb').read()).decode('utf-8','ignore')
+          for seg in d.split(';')[1:]:
+            p=g.parse_props(seg)
+            if g._i(p,1,0)==67:
+              print('ID67', 'x',g._f(p,2,0),'y',g._f(p,3,0),'flipH',g._i(p,4,0),'flipV',g._i(p,5,0),'rot',g._f(p,6,0),'scale',g._f(p,32,1))
