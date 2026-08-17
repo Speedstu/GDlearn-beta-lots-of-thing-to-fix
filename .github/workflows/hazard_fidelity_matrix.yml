@@ -25,7 +25,7 @@ jobs:
           cmake --build /tmp/build -j"$(nproc)"
           /tmp/build/gdlearn selftest
 
-      - name: Create exact-hazard patch helper
+      - name: Create isolated exact-hazard patch helper
         shell: bash
         run: |
           cat > /tmp/hazard_patch.py <<'PY'
@@ -38,15 +38,15 @@ jobs:
                   1594: 6, 1704: 6, 1751: 6}
           """
           table="""
-          # Reverse-engineered full classic hazard hitbox sizes in world units.
+          # Exact dimensions ONLY for IDs already accepted by HAZARD_IDS.
+          # This changes geometry, not the collision-object set.
           CLASSIC_HAZARD_SIZE = {
-              720:(2.40039063,3.20001221), 991:(2.40039063,3.20001221),
-              61:(9.0,7.2), 446:(9.0,7.2), 365:(9.0,6.0), 667:(9.0,6.0),
-              392:(2.6,4.8), 8:(6.0,12.0), 103:(4.0,7.6), 39:(6.0,5.6),
-              205:(6.0,5.6), 768:(4.5,5.2), 447:(5.2,7.2),
-              135:(14.1,20.0), 422:(6.0,4.4), 244:(6.0,6.8),
-              243:(6.0,7.2), 421:(9.0,5.2), 9:(9.0,10.8),
-              989:(9.0,12.0), 178:(6.0,6.4), 179:(4.0,8.0), 919:(25.0,6.0),
+              8:(6.0,12.0), 9:(9.0,10.8), 39:(6.0,5.6),
+              61:(9.0,7.2), 103:(4.0,7.6), 135:(14.1,20.0),
+              205:(6.0,5.6), 365:(9.0,6.0), 392:(2.6,4.8),
+              446:(9.0,7.2), 447:(5.2,7.2), 667:(9.0,6.0),
+              720:(2.40039063,3.20001221), 768:(4.5,5.2),
+              989:(9.0,12.0), 991:(2.40039063,3.20001221),
           }
           """
           if anchor not in s:
@@ -56,12 +56,12 @@ jobs:
                   hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
                   return GdlObject('hazard', 0, x, y, hw, hh, oid)
           """
-          new="""    if oid in CLASSIC_HAZARD_SIZE:
-                  w, h = CLASSIC_HAZARD_SIZE[oid]
-                  hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)
-                  return GdlObject('hazard', 0, x, y, hw, hh, oid)
-              if oid in HAZARD_IDS:
-                  hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
+          new="""    if oid in HAZARD_IDS:
+                  if oid in CLASSIC_HAZARD_SIZE:
+                      w, h = CLASSIC_HAZARD_SIZE[oid]
+                      hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)
+                  else:
+                      hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
                   return GdlObject('hazard', 0, x, y, hw, hh, oid)
           """
           if old not in s:
@@ -82,7 +82,7 @@ jobs:
           p.write_text(s)
           PY
 
-      - name: Probe exact hazard sizes only
+      - name: Probe exact dimensions only
         shell: bash
         run: |
           set -euo pipefail
@@ -92,13 +92,14 @@ jobs:
           python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l1/c.gdl --name Clubstep
           python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l1/t.gdl --name 'Theory of Everything 2'
           python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l1/d.gdl --name Deadlocked
+          for f in /tmp/l1/*.gdl; do echo "sizes $(basename "$f") objects=$(grep -c '^o ' "$f")"; done
           set +e
           for k in c t d; do
             /tmp/build/gdlearn solve /tmp/l1/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 1440 --out /tmp/one-$k.macro | tee /tmp/log1/$k.log
           done
           set -e
 
-      - name: Probe exact hazard sizes plus composed scale
+      - name: Probe exact dimensions plus composed scale
         shell: bash
         run: |
           set -euo pipefail
@@ -108,6 +109,7 @@ jobs:
           python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l2/c.gdl --name Clubstep
           python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l2/t.gdl --name 'Theory of Everything 2'
           python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l2/d.gdl --name Deadlocked
+          for f in /tmp/l2/*.gdl; do echo "scale $(basename "$f") objects=$(grep -c '^o ' "$f")"; done
           set +e
           for k in c t d; do
             /tmp/build/gdlearn solve /tmp/l2/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 1440 --out /tmp/two-$k.macro | tee /tmp/log2/$k.log
@@ -131,5 +133,5 @@ jobs:
           a=values('/tmp/log1')
           b=values('/tmp/log2')
           print('BASELINE',baseline,'sum',sum(baseline.values()))
-          print('HAZARD_SIZES',a,'sum',sum(a.values()))
-          print('HAZARD_SIZES_SCALE',b,'sum',sum(b.values()))
+          print('EXACT_EXISTING_HAZARDS',a,'sum',sum(a.values()))
+          print('EXACT_EXISTING_HAZARDS_SCALE',b,'sum',sum(b.values()))
