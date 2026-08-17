@@ -173,7 +173,7 @@ std::vector<RatedLevel> rateLibrary(const CurriculumConfig& cfg) {
         // space limit. 1.4x + 600 leaves room for slow/ship sections.
         const float perFrame = phys::SPEEDS[0] * phys::DT;
         int frameCap =
-            static_cast<int>(lv.length / std::max(1.0f, perFrame) * 1.4f) + 600;
+            static_cast<int>(lv.length / std::max(1.0f, perFrame) * 1.4f) + phys::ticks(10.0f);
         if (frameCap > cfg.rateMaxFrames) frameCap = cfg.rateMaxFrames;
 
         // Bound the beam by the memory budget for THIS level's frame cap. A

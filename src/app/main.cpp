@@ -118,7 +118,7 @@ int cmdSelftest() {
     sim.step(true);
     check(!sim.state().onGround && sim.state().vy > 0, "press produces a jump");
     int frames = 1;
-    while (!sim.state().onGround && frames < 120) { sim.step(false); frames++; }
+    while (!sim.state().onGround && frames < phys::ticks(2.0f)) { sim.step(false); frames++; }
     check(sim.state().onGround, "cube lands again");
     std::printf("       airtime = %d frames\n", frames);
   }
@@ -204,7 +204,7 @@ int cmdSelftest() {
     SolveOptions o;
     o.beamWidth = 300;
     o.verbose = false;
-    o.maxFrames = 60 * 60;
+    o.maxFrames = phys::ticks(60.0f);
     SolveResult r = beamSolve(lv, o);
     VerifyResult v = verifyMacro(lv, r.holds);
     std::printf("       beam: solved=%d progress=%.1f%% verify=%.1f%%\n",
@@ -240,7 +240,7 @@ int cmdBench(const Args& a) {
   const double sec = std::chrono::duration<double>(
                          std::chrono::steady_clock::now() - t0).count();
   std::printf("sim: %.2fM steps/s single-thread (%.0fx realtime), %lld deaths\n",
-              steps / sec / 1e6, steps / sec / 60.0,
+              steps / sec / 1e6, steps / sec / static_cast<double>(phys::TPS),
               static_cast<long long>(deaths));
 
   // Observation encoding is usually the real bottleneck, so measure it too.
@@ -281,7 +281,7 @@ int cmdGen(const Args& a) {
         if (!verify) { ok = true; break; }
         SolveOptions o;
         o.beamWidth = a.num("beam", 600);
-        o.stallFrames = 60 * 4;
+        o.stallFrames = phys::ticks(4.0f);
         SolveResult r = beamSolve(lv, o);
         best = std::max(best, r.progress);
         if (r.solved || r.progress >= minProgress) { ok = true; break; }
@@ -312,8 +312,8 @@ int cmdSolve(const Args& a) {
 
   SolveOptions o;
   o.beamWidth = a.num("beam", 800);
-  o.maxFrames = a.num("max-frames", 60 * 180);
-  o.stallFrames = a.num("stall", 60 * 8);
+  o.maxFrames = a.num("max-frames", phys::ticks(180.0f));
+  o.stallFrames = a.num("stall", phys::ticks(8.0f));
   o.verbose = true;
 
   const auto t0 = std::chrono::steady_clock::now();
@@ -439,7 +439,7 @@ int cmdCurriculum(const Args& a) {
   cfg.seed = static_cast<uint64_t>(a.num("seed", 7));
   cfg.promote = a.real("promote", 0.75f);
   cfg.maxSamples = a.num("max-samples", 600000);
-  cfg.evalMaxFrames = a.num("max-frames", 60 * 400);
+  cfg.evalMaxFrames = a.num("max-frames", phys::ticks(400.0f));
   cfg.rescueBeam = a.num("rescue-beam", 2500);
   cfg.resume = a.has("resume");
   cfg.verbose = a.has("verbose");
@@ -463,7 +463,7 @@ int cmdEval(const Args& a) {
     std::printf("cannot load checkpoint from %s\n", a.pos[0].c_str());
     return 1;
   }
-  Ppo::Rollout r = ppo.evaluate(one[0], a.num("max-frames", 60 * 180),
+  Ppo::Rollout r = ppo.evaluate(one[0], a.num("max-frames", phys::ticks(180.0f)),
                                 a.has("stochastic"));
   std::printf("%s: %.2f%%%s\n", one[0].name.c_str(), r.progress * 100.0f,
               r.won ? "  COMPLETE" : "");
@@ -503,7 +503,7 @@ int cmdDistill(const Args& a) {
   const int epochs = a.num("epochs", 4);
   const int mb = a.num("minibatch", 512);
   const float lr = a.real("lr", 6e-4f);
-  const int maxFrames = a.num("max-frames", 60 * 400);
+  const int maxFrames = a.num("max-frames", phys::ticks(400.0f));
 
   std::printf("distilling '%s' (%d objects, %.0f blocks)\n", lv.name.c_str(),
               lv.objectCount(), lv.length / phys::BLOCK);
@@ -518,7 +518,7 @@ int cmdDistill(const Args& a) {
     SolveOptions o;
     o.beamWidth = beam;
     o.maxFrames = maxFrames;
-    o.stallFrames = 60 * 15;
+    o.stallFrames = phys::ticks(15.0f);
     o.verbose = false;
     SolveResult r = beamSolve(lv, o);
     if (!r.solved) {
@@ -1035,7 +1035,7 @@ int cmdRender(const Args& a) {
   } else if (a.has("solve")) {
     SolveOptions so;
     so.beamWidth = a.num("beam", 1500);
-    so.maxFrames = a.num("max-frames", 60 * 400);
+    so.maxFrames = a.num("max-frames", phys::ticks(400.0f));
     SolveResult r = beamSolve(lv, so);
     holds = r.holds;
     src = r.solved ? "beam search (solved)" : "beam search (best effort)";
@@ -1044,7 +1044,7 @@ int cmdRender(const Args& a) {
   // what the physics did, never a separate re-implementation that can drift.
   Sim sim(&lv);
   std::string traj = "[";
-  const int maxFrames = a.num("max-frames", 60 * 400);
+  const int maxFrames = a.num("max-frames", phys::ticks(400.0f));
   char buf[192];
   for (int f = 0; f < maxFrames; ++f) {
     const bool hold = f < static_cast<int>(holds.size()) ? holds[f] != 0 : false;
