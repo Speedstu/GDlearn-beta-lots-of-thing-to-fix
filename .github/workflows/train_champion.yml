@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       pack:
-        description: "Real Geometry Dash pack"
+        description: "Extra online Geometry Dash pack (official demons are always included)"
         required: true
         default: demons
         type: choice
@@ -53,44 +53,54 @@ jobs:
           cmake --build build -j"$(nproc)"
           ./build/gdlearn selftest
 
-      - name: Fetch real Geometry Dash levels
+      - name: Convert bundled official demons
         shell: bash
         run: |
           set -euo pipefail
           rm -rf /tmp/gd_real /tmp/gd_proc
           mkdir -p /tmp/gd_real /tmp/gd_proc
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            python3 tools/fetch_gd_level.py --pack "${{ inputs.pack }}" --out /tmp/gd_real
-          else
-            # Bounded first run: two real demons, enough to validate the full
-            # public-server -> converter -> search -> train -> eval path now.
-            python3 tools/fetch_gd_level.py \
-              --name "The Nightmare" \
-              --name "Death Moon" \
-              --out /tmp/gd_real
-          fi
-          echo "real levels:"
-          find /tmp/gd_real -maxdepth 1 -name '*.gdl' -print
-          test "$(find /tmp/gd_real -maxdepth 1 -name '*.gdl' | wc -l)" -ge 1
+
+          # These raw level strings are committed with the project, so hosted
+          # Actions can train even when Boomlings rejects datacenter IPs.
+          python3 tools/gmd_to_gdl.py levels/14.gmd \
+            -o /tmp/gd_real/official_clubstep.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd \
+            -o /tmp/gd_real/official_toe2.gdl --name "Theory of Everything 2"
+          python3 tools/gmd_to_gdl.py levels/20.gmd \
+            -o /tmp/gd_real/official_deadlocked.gdl --name Deadlocked
+
           for f in /tmp/gd_real/*.gdl; do
             n="$(grep -c '^o ' "$f")"
             echo "$(basename "$f"): $n gameplay objects"
             test "$n" -gt 20
+          done
+          test "$(find /tmp/gd_real -maxdepth 1 -name '*.gdl' | wc -l)" -eq 3
+
+      - name: Add online pack when the server allows it
+        if: github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gd_online
+          python3 tools/fetch_gd_level.py --pack "${{ inputs.pack }}" --out /tmp/gd_online
+          # Keep deterministic, unique cache keys when online levels are available.
+          for f in /tmp/gd_online/*.gdl; do
+            [[ -e "$f" ]] || continue
+            cp "$f" "/tmp/gd_real/online_$(basename "$f")"
           done
 
       - name: Seed an easy verified curriculum floor
         shell: bash
         run: |
           set -euo pipefail
-          # Keep real demons in the strict eval pool, but give a fresh network
-          # a few deterministic clearable levels so DAgger has a foothold.
+          # Real demons remain in the strict eval pool, but a fresh network
+          # gets deterministic clearable levels before the DAgger ladder rises.
           for f in levels/d0_s0.gdl levels/d1_s0.gdl levels/d2_s0.gdl; do
-            if [[ -f "$f" ]]; then
-              stem="$(basename "$f" .gdl)"
-              cp "$f" "/tmp/gd_proc/proc_${stem}.gdl"
-            fi
+            stem="$(basename "$f" .gdl)"
+            cp "$f" "/tmp/gd_proc/proc_${stem}.gdl"
           done
-          test "$(find /tmp/gd_proc -name '*.gdl' | wc -l)" -ge 1
+          test "$(find /tmp/gd_proc -name '*.gdl' | wc -l)" -eq 3
 
       - name: Train monotonic champion
         shell: bash
@@ -109,8 +119,8 @@ jobs:
             HIDDEN=256
             RESCUE=1200
           else
-            # Fast, bounded bootstrap that still exercises exact real-demon
-            # solving and actual DAgger training during this commit's run.
+            # Bounded automatic run: prove the full exact-search -> DAgger ->
+            # strict-eval path on real official demons before spending a long job.
             CYCLES=1
             BEAMS="24,96"
             PPO_STEPS=0
@@ -156,7 +166,7 @@ jobs:
           echo '--- exact native macros ---'
           find macros_native -maxdepth 1 -name '*.macro' -print 2>/dev/null || true
           echo '--- tail log ---'
-          tail -n 120 runs/champion_work/champion.log 2>/dev/null || true
+          tail -n 160 runs/champion_work/champion.log 2>/dev/null || true
 
       - name: Upload champion checkpoint and evidence
         if: always()
