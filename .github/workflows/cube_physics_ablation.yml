@@ -1,0 +1,82 @@
+name: measured cube physics ablation
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/cube_physics_ablation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablate:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - gravity_only
+          - jump_only
+          - full_cube
+          - full_cube_hazardlast
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply factual cube variant
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          mode=os.environ['MODE']
+          p=Path('src/core/physics.hpp'); s=p.read_text()
+          anchor='constexpr float CUBE_GRAVITY = 0.958199f * ACCEL_60_TO_TICK2;\nconstexpr float CUBE_JUMP = 11.180000f * VEL_60_TO_TICK;\nconstexpr float CUBE_TERMINAL = 15.0f * VEL_60_TO_TICK;\n'
+          if anchor not in s: raise SystemExit('cube constants anchor missing')
+          gravity='constexpr std::array<float, 5> CUBE_GRAVITIES = {2747.52f/(TPS*TPS), 2794.1082f/(TPS*TPS), 2786.4f/(TPS*TPS), 2799.36f/(TPS*TPS), 2799.36f/(TPS*TPS)};\n'
+          jumps='constexpr std::array<float, 5> CUBE_JUMPS = {573.481728f/TPS, 603.7217172f/TPS, 616.681728f/TPS, 606.421728f/TPS, 606.421728f/TPS};\n'
+          if mode=='gravity_only':
+              repl=gravity+'constexpr float CUBE_GRAVITY = 0.958199f * ACCEL_60_TO_TICK2;\nconstexpr float CUBE_JUMP = 11.180000f * VEL_60_TO_TICK;\nconstexpr float CUBE_TERMINAL = 810.0f / TPS;\n'
+          elif mode=='jump_only':
+              repl=jumps+'constexpr float CUBE_GRAVITY = 0.958199f * ACCEL_60_TO_TICK2;\nconstexpr float CUBE_JUMP = 11.180000f * VEL_60_TO_TICK;\nconstexpr float CUBE_TERMINAL = 810.0f / TPS;\n'
+          else:
+              repl=gravity+jumps+'constexpr float CUBE_GRAVITY = 0.958199f * ACCEL_60_TO_TICK2;  // compatibility\nconstexpr float CUBE_JUMP = 11.180000f * VEL_60_TO_TICK;  // compatibility\nconstexpr float CUBE_TERMINAL = 810.0f / TPS;\n'
+          p.write_text(s.replace(anchor,repl,1))
+
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          if mode=='gravity_only':
+              s=s.replace('st_.vy -= phys::CUBE_GRAVITY * g;','st_.vy -= phys::CUBE_GRAVITIES[st_.tier] * g;',1)
+          elif mode=='jump_only':
+              s=s.replace('st_.vy = phys::CUBE_JUMP * g;','st_.vy = phys::CUBE_JUMPS[st_.tier] * g;',1)
+          else:
+              s=s.replace('st_.vy = phys::CUBE_JUMP * g;','st_.vy = phys::CUBE_JUMPS[st_.tier] * g;',1)
+              s=s.replace('st_.vy -= phys::CUBE_GRAVITY * g;','st_.vy -= phys::CUBE_GRAVITIES[st_.tier] * g;',1)
+          if mode=='full_cube_hazardlast':
+              hazard='''  // Pass 2: hazards (inner hitbox), then solids, then boosts.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n\n'''
+              if hazard not in s: raise SystemExit('hazard pass missing')
+              s=s.replace(hazard,'',1)
+              close='''\n}\n\nvoid Sim::applyPad'''
+              hazard_last='''\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) { st_.dead = true; return; }\n  }\n'''
+              if close not in s: raise SystemExit('resolve close missing')
+              s=s.replace(close,hazard_last+close,1)
+          p.write_text(s)
+      - name: Build and measure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          echo "=== MODE ${{ matrix.mode }} ==="
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 2400 --out /tmp/$k.macro
+          done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 30000 --stall 6000 --out /tmp/t1536.macro
+          set -e
