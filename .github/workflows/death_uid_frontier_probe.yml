@@ -1,0 +1,40 @@
+name: all-dead frontier UID probe
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/death_uid_frontier_probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instrument beam death frontier
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/search/beam.cpp'); s=p.read_text()
+          s=s.replace('''    seen.clear();\n    seen.reserve(cur.size() * 4);\n''','''    seen.clear();\n    seen.reserve(cur.size() * 4);\n    std::unordered_map<int, int> deathCounts;\n''',1)
+          s=s.replace('''        if (ns.dead) continue;\n''','''        if (ns.dead) {\n          ++deathCounts[sim.deathUid()];\n          continue;\n        }\n''',1)
+          old='''    if (cands.empty()) break;\n'''
+          new='''    if (cands.empty()) {\n      if (opts.verbose) {\n        std::vector<std::pair<int,int>> ds(deathCounts.begin(), deathCounts.end());\n        std::sort(ds.begin(), ds.end(), [](const auto& a, const auto& b) { return a.second > b.second; });\n        std::printf("  [beam] ALL DEAD tick %d root-progress %.2f%% states %zu\\n",\n                    frame, record * 100.0f, cur.size());\n        const auto& os = level.objects();\n        for (size_t di = 0; di < ds.size() && di < 8; ++di) {\n          const int uid = ds[di].first;\n          if (uid >= 0 && uid < static_cast<int>(os.size())) {\n            const Object& o = os[static_cast<size_t>(uid)];\n            std::printf("    death uid=%d id=%d kind=%d sub=%u x=%.2f y=%.2f hw=%.2f hh=%.2f count=%d\\n",\n                        uid, static_cast<int>(o.id), static_cast<int>(o.kind),\n                        static_cast<unsigned>(o.sub), o.x, o.y, o.hw, o.hh, ds[di].second);\n          } else {\n            std::printf("    death uid=%d (non-object) count=%d\\n", uid, ds[di].second);\n          }\n        }\n        int far=0;\n        for (int j=1;j<static_cast<int>(cur.size());++j) if (cur[j].x>cur[far].x) far=j;\n        const State& fs=cur[static_cast<size_t>(far)];\n        std::printf("    farthest alive x=%.3f y=%.3f vy=%.5f mode=%d flip=%d ground=%d hold=%d\\n",\n                    fs.x,fs.y,fs.vy,static_cast<int>(fs.mode),fs.flip?1:0,fs.onGround?1:0,fs.holding?1:0);\n      }\n      break;\n    }\n'''
+          if old not in s: raise SystemExit('cands empty anchor missing')
+          p.write_text(s.replace(old,new,1))
+      - name: Build and probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/club.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/dead.gdl --name Deadlocked
+          set +e
+          ./build/gdlearn solve /tmp/l/club.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/c.macro
+          ./build/gdlearn solve /tmp/l/dead.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/d.macro
+          set -e
