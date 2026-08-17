@@ -1,0 +1,50 @@
+name: diagnose ToE2 first blocker
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/toe2_blocker_diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and convert
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/toe2.gdl --name 'Theory of Everything 2'
+          grep -E '^(name|length) ' /tmp/toe2.gdl
+          echo '--- converted collision objects x=350..650 ---'
+          awk '$1=="o" && $4>=350 && $4<=650 {print}' /tmp/toe2.gdl
+          echo '--- raw objects x=350..650 ---'
+          python3 tools/inspect_gmd_region.py levels/18.gmd --x 500 --radius 150
+      - name: Exact beam ladder
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/logs
+          for b in 96 384 1536; do
+            echo "=== BEAM $b ==="
+            set +e
+            /tmp/build/gdlearn solve /tmp/toe2.gdl --beam "$b" --widen 0 \
+              --max-frames 12000 --stall 2400 --out "/tmp/toe2-b${b}.macro" \
+              | tee "/tmp/logs/b${b}.log"
+            set -e
+          done
+          python3 - <<'PY'
+          import re
+          for b in (96,384,1536):
+              t=open(f'/tmp/logs/b{b}.log').read()
+              p=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+              print(f'beam={b} progress={p[-1] if p else "?"}%')
+          PY
