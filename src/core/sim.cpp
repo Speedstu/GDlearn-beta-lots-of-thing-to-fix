@@ -102,6 +102,23 @@ bool Sim::step(bool hold) {
   st_.x += st_.speed * phys::DT;
   st_.y += st_.vy;
   resolveWorld(prev);
+
+  // Pathfinder/Geometry Dash has a deliberate edge-case when walking off an
+  // elevated block: the player falls one native frame faster than the naive
+  // integration predicts.  postCollision() adds one rounded previous-frame
+  // acceleration displacement and, when velocity was zero, one extra rounded
+  // acceleration contribution before the regular vehicle update.
+  if (alive() && prev.mode == Mode::Cube && !prev.flip && prev.onGround &&
+      !st_.onGround && (!hold || st_.buffer) && level_ &&
+      (prev.y - prev.halfH()) > level_->floorY + 0.01f) {
+    const int tier = std::clamp<int>(prev.tier, 0, 4);
+    const float accelTick =
+        -(phys::CUBE_ACCEL_U_S2[tier] / (phys::TPS * phys::TPS));
+    const float roundedAccelTick = roundWorldVy(accelTick, prev.flip);
+    st_.y += roundedAccelTick;
+    if (std::fabs(st_.vy) < 1e-7f) st_.vy += roundedAccelTick;
+  }
+
   if (alive()) applyMotion(press, hold);
 
   // Cosmetic rotation, exposed to the policy because it correlates with the
