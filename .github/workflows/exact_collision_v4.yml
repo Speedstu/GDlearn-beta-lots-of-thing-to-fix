@@ -1,0 +1,62 @@
+name: exact classic collisions v4
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/exact_collision_v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fidelity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply collision patch
+        run: python3 tools/apply_exact_collision_patch.py
+      - name: Build and selftest
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+      - name: Official demons same budget
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 2400 --out /tmp/$k.macro | tee /tmp/log/$k.log
+          done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 24000 --stall 6000 --out /tmp/t1536.macro | tee /tmp/log/t1536.log
+          set -e
+      - name: Gate and promote
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          def progress(f):
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',open(f).read())
+              return float(m[-1]) if m else -1
+          r={k:progress('/tmp/log/'+k+'.log') for k in ('c','t','d')}
+          r['tb']=progress('/tmp/log/t1536.log')
+          print('RESULT',r)
+          if r['c'] < 20.0: raise SystemExit('Clubstep regression')
+          if r['d'] < 6.0: raise SystemExit('Deadlocked regression')
+          if max(r['t'],r['tb']) <= 1.61: raise SystemExit('ToE2 still blocked')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/gmd_to_gdl.py src/core/level.hpp src/core/level.cpp src/core/sim.cpp
+          git rm tools/apply_exact_collision_patch.py .github/workflows/exact_collision_v4.yml .github/workflows/exact_collision_v3.yml
+          git commit -m 'use explicit classic collision tables and circular sawblades'
+          git push
