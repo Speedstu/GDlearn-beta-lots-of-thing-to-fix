@@ -3,7 +3,7 @@ name: gdlearn2 demon champion
 on:
   push:
     branches:
-      - agent/gdlearn2-replace
+      - agent/gdlearn2-final
     paths:
       - .github/workflows/train_champion.yml
   workflow_dispatch:
@@ -13,9 +13,7 @@ on:
         required: true
         default: demons
         type: choice
-        options:
-          - demons
-          - classics
+        options: [demons, classics]
       cycles:
         description: "Search -> DAgger -> PPO champion cycles"
         required: true
@@ -24,12 +22,12 @@ on:
       beams:
         description: "Exact-search beam ladder"
         required: true
-        default: "96,384,1536"
+        default: "1536,6144,24576"
         type: string
       ppo_steps:
         description: "PPO finisher steps per cycle (0 disables)"
         required: true
-        default: "1000000"
+        default: "2000000"
         type: string
 
 permissions:
@@ -45,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build native 240 TPS engine
+      - name: Build physically-valid 240 TPS engine
         shell: bash
         run: |
           set -euo pipefail
@@ -59,16 +57,9 @@ jobs:
           set -euo pipefail
           rm -rf /tmp/gd_real /tmp/gd_proc
           mkdir -p /tmp/gd_real /tmp/gd_proc
-
-          # These raw level strings are committed with the project, so hosted
-          # Actions can train even when Boomlings rejects datacenter IPs.
-          python3 tools/gmd_to_gdl.py levels/14.gmd \
-            -o /tmp/gd_real/official_clubstep.gdl --name Clubstep
-          python3 tools/gmd_to_gdl.py levels/18.gmd \
-            -o /tmp/gd_real/official_toe2.gdl --name "Theory of Everything 2"
-          python3 tools/gmd_to_gdl.py levels/20.gmd \
-            -o /tmp/gd_real/official_deadlocked.gdl --name Deadlocked
-
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/gd_real/official_clubstep.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/gd_real/official_toe2.gdl --name "Theory of Everything 2"
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/gd_real/official_deadlocked.gdl --name Deadlocked
           for f in /tmp/gd_real/*.gdl; do
             n="$(grep -c '^o ' "$f")"
             echo "$(basename "$f"): $n gameplay objects"
@@ -76,7 +67,7 @@ jobs:
           done
           test "$(find /tmp/gd_real -maxdepth 1 -name '*.gdl' | wc -l)" -eq 3
 
-      - name: Add online pack when the server allows it
+      - name: Add online pack when server allows it
         if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         shell: bash
@@ -84,25 +75,22 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/gd_online
           python3 tools/fetch_gd_level.py --pack "${{ inputs.pack }}" --out /tmp/gd_online
-          # Keep deterministic, unique cache keys when online levels are available.
           for f in /tmp/gd_online/*.gdl; do
             [[ -e "$f" ]] || continue
             cp "$f" "/tmp/gd_real/online_$(basename "$f")"
           done
 
-      - name: Seed an easy verified curriculum floor
+      - name: Seed verified curriculum floor
         shell: bash
         run: |
           set -euo pipefail
-          # Real demons remain in the strict eval pool, but a fresh network
-          # gets deterministic clearable levels before the DAgger ladder rises.
           for f in levels/d0_s0.gdl levels/d1_s0.gdl levels/d2_s0.gdl; do
             stem="$(basename "$f" .gdl)"
             cp "$f" "/tmp/gd_proc/proc_${stem}.gdl"
           done
           test "$(find /tmp/gd_proc -name '*.gdl' | wc -l)" -eq 3
 
-      - name: Train monotonic champion
+      - name: Search and train monotonic champion
         shell: bash
         run: |
           set -euo pipefail
@@ -113,22 +101,22 @@ jobs:
             CYCLES="${{ inputs.cycles }}"
             BEAMS="${{ inputs.beams }}"
             PPO_STEPS="${{ inputs.ppo_steps }}"
-            EPOCHS=60
-            ROUNDS=4
+            EPOCHS=80
+            ROUNDS=5
+            TIERS=6
+            HIDDEN=384
+            RESCUE=24576
+          else
+            # First physically-valid bootstrap. Exact search is deliberately
+            # strong; PPO stays off until exact oracles and DAgger are measured.
+            CYCLES=1
+            BEAMS="1536,6144,24576"
+            PPO_STEPS=0
+            EPOCHS=30
+            ROUNDS=3
             TIERS=5
             HIDDEN=256
-            RESCUE=1200
-          else
-            # Bounded automatic run: prove the full exact-search -> DAgger ->
-            # strict-eval path on real official demons before spending a long job.
-            CYCLES=1
-            BEAMS="24,96"
-            PPO_STEPS=0
-            EPOCHS=8
-            ROUNDS=1
-            TIERS=2
-            HIDDEN=128
-            RESCUE=96
+            RESCUE=6144
           fi
 
           python3 tools/champion.py \
@@ -142,13 +130,13 @@ jobs:
             --beams "$BEAMS" \
             --prior-weight 8 \
             --max-ticks 43200 \
-            --stall-ticks 1440 \
+            --stall-ticks 12000 \
             --tiers "$TIERS" \
             --rounds "$ROUNDS" \
             --epochs "$EPOCHS" \
             --hidden "$HIDDEN" \
             --rescue-beam "$RESCUE" \
-            --mem-budget-mb 3500 \
+            --mem-budget-mb 4500 \
             --ppo-steps "$PPO_STEPS" \
             2>&1 | tee runs/champion_work/champion.log
 
@@ -166,7 +154,7 @@ jobs:
           echo '--- exact native macros ---'
           find macros_native -maxdepth 1 -name '*.macro' -print 2>/dev/null || true
           echo '--- tail log ---'
-          tail -n 160 runs/champion_work/champion.log 2>/dev/null || true
+          tail -n 240 runs/champion_work/champion.log 2>/dev/null || true
 
       - name: Upload champion checkpoint and evidence
         if: always()
