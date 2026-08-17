@@ -1,0 +1,126 @@
+name: physically safe collision matrix
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/phys_safe_matrix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - flight
+          - flight_inner
+          - flight_hazardlast
+          - flight_inner_hazardlast
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply variant
+        shell: python
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+
+          variant = os.environ['VARIANT']
+          p = Path('src/core/sim.cpp')
+          s = p.read_text()
+
+          # Mandatory correctness fix: a gravity-flipped cube/ball/etc must
+          # never be clamped by the special flight corridor ceiling.
+          old = '''    if (st_.flip) {\n      float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;\n'''
+          new = '''    if (st_.flip && isFlightMode(st_.mode)) {\n      float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;\n'''
+          if old not in s:
+              raise SystemExit('flight clamp anchor missing')
+          s = s.replace(old, new, 1)
+
+          if 'inner' in variant:
+              anchor = '''  const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);\n  const float lhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);\n'''
+              repl = anchor + '''  // GD solid-side collision uses the compact inner player hitbox.\n  const float bhw = hw * phys::HITBOX_LETHAL_SCALE;\n  const float bhh = hh * phys::HITBOX_LETHAL_SCALE;\n'''
+              if anchor not in s:
+                  raise SystemExit('inner hitbox declaration anchor missing')
+              s = s.replace(anchor, repl, 1)
+              wall = '''    } else if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      // Ran into the wall for real: that is a death in GD, not a slide.\n'''
+              wall2 = '''    } else if (aabb(st_.x, st_.y, bhw, bhh, o.x, o.y, o.hw, o.hh)) {\n      // Ran into the wall for real: that is a death in GD, not a slide.\n'''
+              if wall not in s:
+                  raise SystemExit('solid-side hitbox anchor missing')
+              s = s.replace(wall, wall2, 1)
+
+          if 'hazardlast' in variant:
+              hz = '''  // Pass 2: hazards (inner hitbox), then solids, then boosts.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n\n'''
+              if hz not in s:
+                  raise SystemExit('hazard pass anchor missing')
+              s = s.replace(hz, '''  // Pass 2: solids, then hazards, then boosts.\n''', 1)
+              boost = '''  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind == Kind::Pad) {\n'''
+              hz_after = '''  // Hazards are checked after solid contact correction so a legal\n  // corner/landing cannot die against the pre-resolution player position.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n\n'''
+              if boost not in s:
+                  raise SystemExit('boost pass anchor missing')
+              s = s.replace(boost, hz_after + boost, 1)
+
+          p.write_text(s)
+          print('variant', variant)
+
+      - name: Build and selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+
+      - name: Solve official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/$k.macro | tee /tmp/log/$k.log
+          done
+          for b in 1536 8192 32768; do
+            /tmp/build/gdlearn solve /tmp/l/t.gdl --beam "$b" --widen 0 --max-frames 43200 --stall 12000 --out /tmp/t$b.macro | tee /tmp/log/t$b.log
+          done
+          set -e
+
+      - name: Physical-sanity trace and summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          def pct(path):
+              txt = Path(path).read_text()
+              m = re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%', txt)
+              return float(m[-1]) if m else -1.0
+
+          r = {
+              'clubstep_b96': pct('/tmp/log/c.log'),
+              'toe2_b96': pct('/tmp/log/t.log'),
+              'deadlocked_b96': pct('/tmp/log/d.log'),
+              'toe2_b1536': pct('/tmp/log/t1536.log'),
+              'toe2_b8192': pct('/tmp/log/t8192.log'),
+              'toe2_b32768': pct('/tmp/log/t32768.log'),
+          }
+          print('RESULT', r)
+          # The score gates intentionally do NOT preserve the old 24.4/6.41
+          # baselines: those were measured with the invalid flipped-cube
+          # flight clamp and are not trustworthy correctness targets.
+          if max(r['toe2_b1536'], r['toe2_b8192'], r['toe2_b32768']) < 2.0:
+              raise SystemExit('phys-safe search cannot clear the first ToE2 section')
+          PY
