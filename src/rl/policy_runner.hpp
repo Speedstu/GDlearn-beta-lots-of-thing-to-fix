@@ -3,6 +3,7 @@
 // eventually the live Geometry Dash integration. No PPO/env allocation.
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,13 @@
 #include "rl/running.hpp"
 
 namespace gd {
+
+struct PolicyRollout {
+  float progress = 0.0f;
+  bool won = false;
+  std::vector<uint8_t> holds;
+  State finalState{};
+};
 
 class PolicyRunner {
  public:
@@ -24,6 +32,9 @@ class PolicyRunner {
 
   // Deterministic greedy action for a single state.
   bool action(const Level& level, const State& state, float* pHold = nullptr);
+
+  PolicyRollout evaluate(const Level& level,
+                         int maxTicks = phys::ticks(180.0f));
 
   nn::Net& net() { return net_; }
   RunningNorm& norm() { return norm_; }
