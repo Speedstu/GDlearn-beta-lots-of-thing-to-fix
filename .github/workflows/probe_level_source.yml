@@ -1,0 +1,29 @@
+name: probe GD level source
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/probe_level_source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe GDBrowser search and level endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- search ---'
+          curl -fsSL --max-time 20 'https://gdbrowser.com/api/search/The%20Nightmare' -o /tmp/search.json
+          wc -c /tmp/search.json
+          head -c 2000 /tmp/search.json; echo
+          echo '--- level 13519 ---'
+          curl -fsSL --max-time 20 'https://gdbrowser.com/api/level/13519' -o /tmp/level.json
+          wc -c /tmp/level.json
+          head -c 2000 /tmp/level.json; echo
