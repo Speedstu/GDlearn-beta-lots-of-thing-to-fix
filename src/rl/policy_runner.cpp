@@ -97,4 +97,23 @@ bool PolicyRunner::action(const Level& level, const State& state, float* pHold) 
   return ph > 0.5f;
 }
 
+PolicyRollout PolicyRunner::evaluate(const Level& level, int maxTicks) {
+  PolicyRollout out;
+  Sim sim(&level);
+  std::vector<State> one(1);
+  std::vector<float> p;
+  out.holds.reserve(static_cast<size_t>(std::max(0, maxTicks)));
+  for (int tick = 0; tick < maxTicks && sim.alive(); ++tick) {
+    one[0] = sim.state();
+    probabilities(level, one, &p);
+    const bool hold = !p.empty() && p[0] > 0.5f;
+    out.holds.push_back(hold ? 1 : 0);
+    sim.step(hold);
+  }
+  out.progress = sim.progress();
+  out.won = sim.state().won;
+  out.finalState = sim.state();
+  return out;
+}
+
 }  // namespace gd
