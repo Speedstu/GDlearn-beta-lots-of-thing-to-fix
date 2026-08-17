@@ -1,0 +1,81 @@
+name: effects before blocks fidelity
+
+on:
+  push:
+    branches: [agent/gdlearn2-order-v2]
+    paths: [.github/workflows/effects_before_blocks.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply Pathfinder collision ordering
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          portal_end='''  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind == Kind::Portal || o.kind == Kind::Speed) {\n      if (aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) applyPortal(o);\n    }\n  }\n\n  bool landed = false;\n'''
+          effects='''  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind == Kind::Pad) {\n      if (o.uid != st_.lastPadUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyPad(o);\n    } else if (o.kind == Kind::Orb) {\n      if (st_.holding && st_.holdFrames == 1 && o.uid != st_.lastOrbUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyOrb(o);\n    }\n  }\n'''
+          if portal_end not in s or effects not in s:
+              raise SystemExit('ordering anchors missing')
+          inserted='''  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind == Kind::Portal || o.kind == Kind::Speed) {\n      if (aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) applyPortal(o);\n    }\n  }\n\n  // GD processes ordinary gameplay effects before blocks.  A blue pad/orb\n  // that flips gravity suppresses block resolution for that same native tick.\n  // Gravity portals are different: their flip happens above and does not set\n  // this suppression flag.\n  const bool flipAfterPortals = st_.flip;\n'''+effects+'''  const bool skipSolidsThisTick = (st_.flip != flipAfterPortals);\n\n  bool landed = false;\n'''
+          s=s.replace(portal_end,inserted,1)
+          # Remove old late effect pass.
+          pos=s.find(effects, s.find('bool landed = false;'))
+          if pos<0: raise SystemExit('late effect pass not found')
+          s=s[:pos]+s[pos+len(effects):]
+          # Skip Block::collide equivalent on the blue-effect flip tick.
+          solid='''    if (o.kind != Kind::Solid) continue;\n    if (!aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) continue;\n'''
+          repl='''    if (o.kind != Kind::Solid) continue;\n    if (skipSolidsThisTick) continue;\n    if (!aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) continue;\n'''
+          if solid not in s: raise SystemExit('solid loop anchor missing')
+          s=s.replace(solid,repl,1)
+          p.write_text(s)
+      - name: Build and selftest
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          ./build/gdlearn selftest
+      - name: Demon A/B
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          ./build/gdlearn solve /tmp/l/c.gdl --beam 6144 --widen 0 --max-frames 12000 --stall 6000 --out /tmp/c.macro | tee /tmp/c.log
+          ./build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 20000 --stall 8000 --out /tmp/t.macro | tee /tmp/t.log
+          ./build/gdlearn solve /tmp/l/d.gdl --beam 6144 --widen 0 --max-frames 12000 --stall 6000 --out /tmp/d.macro | tee /tmp/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          def m(p):
+              t=open(p).read(); x=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?verify\s+([0-9.]+)%',t)
+              if not x: raise SystemExit('metric missing '+p)
+              a,b=map(float,x[-1]);
+              if abs(a-b)>.02: raise SystemExit('replay mismatch')
+              return a
+          r={'club':m('/tmp/c.log'),'toe2':m('/tmp/t.log'),'dead':m('/tmp/d.log')}
+          print('EFFECTS_BEFORE_BLOCKS',r)
+          if r['club'] <= 9.30: raise SystemExit('Clubstep did not improve')
+          if r['toe2'] < 30.0: raise SystemExit('ToE2 severe regression')
+          if r['dead'] < 5.0: raise SystemExit('Deadlocked severe regression')
+          PY
+      - name: Promote
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.cpp
+          git rm .github/workflows/effects_before_blocks.yml
+          git commit -m 'match GD effect-before-block collision ordering'
+          git push
