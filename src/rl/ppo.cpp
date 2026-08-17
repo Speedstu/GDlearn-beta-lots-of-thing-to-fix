@@ -123,7 +123,8 @@ void Ppo::collect() {
     bestProgress_ = std::max(bestProgress_, std::get<4>(o));
   }
   stepsDone_ += static_cast<int64_t>(nEnv) * nStep;
-  norm_.observe(obsBuf_.data(), 256);
+  const int normSamples = std::min(256, nEnv * nStep);
+  if (normSamples > 0) norm_.observe(obsBuf_.data(), normSamples);
 }
 
 void Ppo::update(float progressFrac) {
