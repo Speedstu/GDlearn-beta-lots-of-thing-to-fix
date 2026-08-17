@@ -35,11 +35,38 @@ jobs:
           echo "converted gameplay objects: $OBJECTS"
           test "$OBJECTS" -gt 20
           grep '^# gdlearn level v1' /tmp/1.gdl
+      - name: Reject legacy 60-TPS macro cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/legacy.macro <<'EOF'
+          # gdlearn macro v1
+          level legacy
+          fps 60
+          progress 1
+          frames 4
+          r 0 4
+          EOF
+          if ./build/gdlearn replay levels/d0_s0.gdl /tmp/legacy.macro; then
+            echo 'ERROR: legacy 60-TPS macro was accepted'
+            exit 1
+          fi
+      - name: Reject ambiguous macro-cache stems
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gda /tmp/gdb /tmp/gdmac
+          cp levels/d0_s0.gdl /tmp/gda/same.gdl
+          cp levels/d0_s0.gdl /tmp/gdb/same.gdl
+          if ./build/gdlearn curriculum --levels /tmp/gda,/tmp/gdb --rate-only --macros /tmp/gdmac --out /tmp/gddup; then
+            echo 'ERROR: duplicate stems were accepted'
+            exit 1
+          fi
       - name: Reject obvious legacy timing regressions
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -R --line-number -E '60 entries per second|one 60Hz gameplay|default 60-Hz|fps = 60' src tools || {
+          ! grep -R --line-number -E '60 entries per second|one 60Hz gameplay|default 60-Hz|fps = 60|frames / 60\.0f' src tools || {
             echo 'legacy timing assumption reintroduced'; exit 1;
           }
       - name: Short throughput benchmark
