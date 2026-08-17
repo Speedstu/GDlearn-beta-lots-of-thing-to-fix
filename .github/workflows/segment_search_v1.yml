@@ -1,4 +1,4 @@
-name: segmented exact search v1
+name: segmented exact search v2
 
 on:
   push:
@@ -11,69 +11,67 @@ permissions:
 jobs:
   segment:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Add verified prefix continuation to solve CLI
+      - name: Add replay-verified prefix backoff continuation
         shell: python
         run: |
           from pathlib import Path
-          p=Path('src/app/main.cpp')
-          s=p.read_text()
-          s=s.replace(
-            '"[--prior-weight X] [--out macro]\\n");',
-            '"[--prior-weight X] [--prefix-macro partial.macro] [--out macro]\\n");',1)
-
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          s=s.replace('"[--prior-weight X] [--out macro]\\n");',
+                      '"[--prior-weight X] [--prefix-macro f] [--prefix-backoff N] [--out macro]\\n");',1)
           anchor='''  o.stallFrames = a.num("stall", phys::ticks(8.0f));\n  o.verbose = true;\n\n  PolicyRunner guide;\n'''
-          insert='''  o.stallFrames = a.num("stall", phys::ticks(8.0f));\n  o.verbose = true;\n\n  // Optional exact continuation from a replay-valid partial macro.  The\n  // prefix is never trusted as a state dump: replay it through Sim so the\n  // continuation starts from the same deterministic state verification sees.\n  std::vector<uint8_t> prefixHolds;\n  if (a.has("prefix-macro")) {\n    const std::string prefixPath = a.str("prefix-macro");\n    Macro pm;\n    if (!Macro::load(prefixPath, &pm)) {\n      std::printf("cannot load native prefix macro: %s\\n", prefixPath.c_str());\n      return 2;\n    }\n    if (!pm.level.empty() && pm.level != lv.name) {\n      std::printf("prefix level mismatch: '%s' vs '%s'\\n", pm.level.c_str(), lv.name.c_str());\n      return 2;\n    }\n    Sim pre(&lv);\n    for (size_t i = 0; i < pm.holds.size(); ++i) {\n      if (!pre.alive()) {\n        std::printf("prefix becomes terminal before its final tick\\n");\n        return 2;\n      }\n      pre.step(pm.holds[i] != 0);\n    }\n    if (pre.state().dead) {\n      std::printf("prefix macro ends dead; refusing continuation\\n");\n      return 2;\n    }\n    if (pre.state().won) {\n      std::printf("prefix is already COMPLETE at 100%%\\n");\n      return 0;\n    }\n    prefixHolds = pm.holds;\n    o.hasStart = true;\n    o.start = pre.state();\n    std::printf("continuing verified prefix: %zu ticks, %.2f%%\\n",\n                prefixHolds.size(), pre.progress() * 100.0f);\n  }\n\n  PolicyRunner guide;\n'''
+          insert='''  o.stallFrames = a.num("stall", phys::ticks(8.0f));\n  o.verbose = true;\n\n  std::vector<uint8_t> prefixHolds;\n  if (a.has("prefix-macro")) {\n    const std::string prefixPath = a.str("prefix-macro");\n    Macro pm;\n    if (!Macro::load(prefixPath, &pm)) {\n      std::printf("cannot load native prefix macro: %s\\n", prefixPath.c_str());\n      return 2;\n    }\n    if (!pm.level.empty() && pm.level != lv.name) {\n      std::printf("prefix level mismatch: '%s' vs '%s'\\n", pm.level.c_str(), lv.name.c_str());\n      return 2;\n    }\n    const int backoff = std::max(0, a.num("prefix-backoff", 0));\n    if (backoff > 0) {\n      const size_t cut = std::min(pm.holds.size(), static_cast<size_t>(backoff));\n      pm.holds.resize(pm.holds.size() - cut);\n    }\n    Sim pre(&lv);\n    for (size_t i = 0; i < pm.holds.size(); ++i) {\n      if (!pre.alive()) {\n        std::printf("prefix becomes terminal before final tick\\n");\n        return 2;\n      }\n      pre.step(pm.holds[i] != 0);\n    }\n    if (pre.state().dead || pre.state().won) {\n      std::printf("prefix endpoint is terminal; choose a larger --prefix-backoff\\n");\n      return 2;\n    }\n    prefixHolds = pm.holds;\n    o.hasStart = true;\n    o.start = pre.state();\n    std::printf("continuing verified prefix: %zu ticks, %.2f%%, backoff=%d\\n",\n                prefixHolds.size(), pre.progress() * 100.0f, backoff);\n  }\n\n  PolicyRunner guide;\n'''
           if anchor not in s: raise SystemExit('solve options anchor missing')
           s=s.replace(anchor,insert,1)
-
-          old='''  VerifyResult v = verifyMacro(lv, r.holds);\n  std::printf(\n      "%s  progress %.2f%%  frames %d  expanded %lldk  %.1fs  verify %.2f%%\\n",\n      r.solved ? "SOLVED" : "partial", r.progress * 100.0f, r.frames,\n      static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);\n\n  const std::string out = a.str("out", a.pos[0] + ".macro");\n  Macro m;\n  m.level = lv.name;\n  m.progress = v.progress;\n  m.holds = r.holds;\n  if (m.save(out)) std::printf("macro -> %s\\n  %s\\n", out.c_str(),\n                               m.summary().c_str());\n  return r.solved ? 0 : 1;\n'''
-          new='''  std::vector<uint8_t> combined = prefixHolds;\n  combined.insert(combined.end(), r.holds.begin(), r.holds.end());\n  VerifyResult v = verifyMacro(lv, combined);\n  std::printf(\n      "%s  progress %.2f%%  frames %zu  expanded %lldk  %.1fs  verify %.2f%%\\n",\n      v.solved ? "SOLVED" : "partial", v.progress * 100.0f, combined.size(),\n      static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);\n\n  const std::string out = a.str("out", a.pos[0] + ".macro");\n  Macro m;\n  m.level = lv.name;\n  m.progress = v.progress;\n  m.holds = std::move(combined);\n  if (m.save(out)) std::printf("macro -> %s\\n  %s\\n", out.c_str(),\n                               m.summary().c_str());\n  return v.solved ? 0 : 1;\n'''
+          old='''  VerifyResult v = verifyMacro(lv, r.holds);\n  std::printf(\n      "%s  progress %.2f%%  frames %d  expanded %lldk  %.1fs  verify %.2f%%\\n",\n      r.solved ? "SOLVED" : "partial", r.progress * 100.0f, r.frames,\n      static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);\n\n  const std::string out = a.str("out", a.pos[0] + ".macro");\n  Macro m;\n  m.level = lv.name;\n  m.progress = v.progress;\n  m.holds = r.holds;\n'''
+          new='''  std::vector<uint8_t> combined = prefixHolds;\n  combined.insert(combined.end(), r.holds.begin(), r.holds.end());\n  VerifyResult v = verifyMacro(lv, combined);\n  std::printf(\n      "%s  progress %.2f%%  frames %zu  expanded %lldk  %.1fs  verify %.2f%%\\n",\n      v.solved ? "SOLVED" : "partial", v.progress * 100.0f, combined.size(),\n      static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);\n\n  const std::string out = a.str("out", a.pos[0] + ".macro");\n  Macro m;\n  m.level = lv.name;\n  m.progress = v.progress;\n  m.holds = std::move(combined);\n'''
           if old not in s: raise SystemExit('solve result anchor missing')
           s=s.replace(old,new,1)
+          s=s.replace('return r.solved ? 0 : 1;','return v.solved ? 0 : 1;',1)
           p.write_text(s)
 
-      - name: Build and core regressions
-        shell: bash
+      - name: Build
         run: |
-          set -euo pipefail
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j"$(nproc)"
           ./build/gdlearn selftest
 
-      - name: Generate 70 percent ToE2 prefix and continue
+      - name: Search ToE2 and branch before dead-end
         shell: bash
         run: |
           set -euo pipefail
           python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/toe2.gdl --name 'Theory of Everything 2'
           set +e
           ./build/gdlearn solve /tmp/toe2.gdl --beam 24576 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/p0.macro | tee /tmp/p0.log
-          ./build/gdlearn solve /tmp/toe2.gdl --prefix-macro /tmp/p0.macro --beam 24576 --widen 0 --max-frames 30000 --stall 12000 --out /tmp/p1.macro | tee /tmp/p1.log
-          ./build/gdlearn solve /tmp/toe2.gdl --prefix-macro /tmp/p1.macro --beam 24576 --widen 0 --max-frames 30000 --stall 12000 --out /tmp/p2.macro | tee /tmp/p2.log
+          for b in 120 480 960 1920; do
+            ./build/gdlearn solve /tmp/toe2.gdl --prefix-macro /tmp/p0.macro --prefix-backoff "$b" \
+              --beam 24576 --widen 0 --max-frames 30000 --stall 12000 --out "/tmp/p${b}.macro" | tee "/tmp/p${b}.log"
+          done
           set -e
-          ./build/gdlearn replay /tmp/toe2.gdl /tmp/p2.macro | tee /tmp/replay.log || true
           python3 - <<'PY'
           import re
           from pathlib import Path
-          vals=[]
-          for f in ('/tmp/p0.log','/tmp/p1.log','/tmp/p2.log'):
-              t=Path(f).read_text()
-              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?verify\s+([0-9.]+)%',t)
-              if not m: raise SystemExit('missing metric '+f)
+          def val(path):
+              t=Path(path).read_text(); m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?verify\s+([0-9.]+)%',t)
+              if not m: return -1.0
               p,v=map(float,m[-1]);
-              if abs(p-v)>0.02: raise SystemExit('replay mismatch '+f)
-              vals.append(p)
-          print('SEGMENT_PROGRESS', vals)
-          if vals[0] < 65.0: raise SystemExit('prefix search unexpectedly regressed')
-          if max(vals[1:]) <= vals[0] + 0.05: raise SystemExit('segmentation did not extend verified prefix')
+              if abs(p-v)>0.02: raise SystemExit('replay mismatch '+path)
+              return p
+          base=val('/tmp/p0.log')
+          vals={b:val(f'/tmp/p{b}.log') for b in (120,480,960,1920)}
+          print('SEGMENT_BACKOFF', {'base':base, **vals})
+          best=max(vals.values())
+          if base < 65: raise SystemExit('base regression')
+          if best <= base + 0.05: raise SystemExit('no backoff continuation improved prefix')
+          Path('/tmp/best.txt').write_text(str(max(vals,key=vals.get)))
           PY
 
-      - name: Commit segmented solver
+      - name: Commit continuation support
         shell: bash
         run: |
           set -euo pipefail
@@ -81,5 +79,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/app/main.cpp
           git rm .github/workflows/segment_search_v1.yml
-          git commit -m 'add replay-verified segmented beam continuation'
+          git commit -m 'add replay-verified beam continuation with backoff'
           git push
