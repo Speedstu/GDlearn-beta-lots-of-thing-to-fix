@@ -1,0 +1,58 @@
+name: trace ToE2 inverted ship transition
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/toe2_ship_transition.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build solve trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/t.gdl --name 'Theory of Everything 2'
+          set +e
+          /tmp/build/gdlearn solve /tmp/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 20000 --out /tmp/t.macro > /tmp/solve.log
+          set -e
+          /tmp/build/gdlearn trace /tmp/t.gdl --macro /tmp/t.macro --frames 7000 --from 0 > /tmp/trace.log
+      - name: Analyze transitions
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+          pat=re.compile(r'\s*(\d+)\s+(HOLD|\.\.\.\.)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)')
+          rows=[]
+          for line in Path('/tmp/trace.log').read_text().splitlines():
+              m=pat.match(line)
+              if not m: continue
+              rows.append({'frame':int(m[1]),'hold':m[2]=='HOLD','x':float(m[3]),'y':float(m[4]),'vy':float(m[5]),'ground':int(m[6]),'dead':int(m[7]),'mode':int(m[8]),'flip':int(m[9]),'pad':int(m[10]),'orb':int(m[11]),'contact':int(m[12]),'death':int(m[13])})
+          print(Path('/tmp/solve.log').read_text().splitlines()[-3:])
+          if not rows: raise SystemExit('no trace')
+          print('MODE_FLIP_CHANGES')
+          prev=None
+          for i,r in enumerate(rows):
+              sig=(r['mode'],r['flip'])
+              if prev is None or sig!=prev:
+                  print('CHANGE',i,r)
+                  for q in rows[max(0,i-4):min(len(rows),i+8)]: print(q)
+              prev=sig
+          hits=[i for i,r in enumerate(rows) if r['contact']!=-1]
+          print('CONTACT_EVENTS_LAST_100')
+          for i in hits[-100:]: print(rows[i])
+          floor=[i for i,r in enumerate(rows) if r['mode']==1 and r['flip']==1 and r['y']<=0.31]
+          if floor:
+              i=floor[0]
+              print('FIRST_INVERTED_SHIP_FLOOR',rows[i])
+              for q in rows[max(0,i-80):min(len(rows),i+120)]: print(q)
+          else:
+              print('NO_INVERTED_SHIP_FLOOR')
