@@ -3,79 +3,58 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <map>
 #include <mutex>
+#include <numeric>
+#include <random>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "core/physics.hpp"
 #include "env/obs.hpp"
 #include "io/macro.hpp"
 #include "nn/net.hpp"
 #include "rl/running.hpp"
 #include "search/beam.hpp"
 
+namespace gd {
 namespace fs = std::filesystem;
 
-namespace gd {
 namespace {
-
-// Small deterministic PRNG. The project already has one, but the curriculum
-// only needs shuffling and it keeps this file self-contained.
-struct Lcg {
-  uint64_t s;
-  explicit Lcg(uint64_t seed) : s(seed * 2862933555777941757ull + 3037000493ull) {}
-  uint32_t next() {
-    s = s * 6364136223846793005ull + 1442695040888963407ull;
-    return static_cast<uint32_t>(s >> 33);
-  }
-  int below(int n) { return n <= 0 ? 0 : static_cast<int>(next() % static_cast<uint32_t>(n)); }
-};
-
-int threadCount(int requested) {
-  if (requested > 0) return requested;
-  const unsigned hc = std::thread::hardware_concurrency();
-  return hc == 0 ? 1 : static_cast<int>(hc);
-}
 
 std::string stemOf(const std::string& path) {
   return fs::path(path).stem().string();
 }
 
-std::vector<std::string> collectLevelPaths(const std::vector<std::string>& dirs) {
+std::vector<std::string> collectLevelPaths(const std::vector<std::string>& roots) {
   std::vector<std::string> out;
-  for (const std::string& d : dirs) {
-    if (d.empty() || !fs::exists(d)) continue;
-    if (fs::is_directory(d)) {
-      for (const auto& e : fs::directory_iterator(d))
-        if (e.path().extension() == ".gdl") out.push_back(e.path().string());
-    } else if (fs::path(d).extension() == ".gdl") {
-      out.push_back(d);
+  for (const std::string& root : roots) {
+    if (!fs::exists(root)) continue;
+    if (fs::is_regular_file(root) && fs::path(root).extension() == ".gdl") {
+      out.push_back(root);
+      continue;
     }
+    if (!fs::is_directory(root)) continue;
+    for (const auto& e : fs::recursive_directory_iterator(root))
+      if (e.is_regular_file() && e.path().extension() == ".gdl")
+        out.push_back(e.path().string());
   }
   std::sort(out.begin(), out.end());
-  out.erase(std::unique(out.begin(), out.end()), out.end());
   return out;
 }
 
-// Difficulty score. Every term is measured, never guessed:
-//   * search cost: the beam width the solver needed (log scale, dominant term)
-//   * branching:   nodes expanded per frame of solution
-//   * density:     objects per block, i.e. how busy the level is
-//   * length:      a long level is more chances to die even if each part is easy
-// Unsolved levels are pushed to the very end of the curriculum.
-float difficultyScore(const RatedLevel& r, int minBeam) {
-  if (!r.solved) return 1e6f;
-  const float beamTerm =
-      std::log2(std::max(1.0f, static_cast<float>(r.beamNeeded) /
-                                   static_cast<float>(std::max(1, minBeam))));
+float difficultyScore(const RatedLevel& r) {
+  const float beamTerm = std::log2(static_cast<float>(std::max(2, r.beamNeeded)));
   const float expandedPerFrame =
       r.frames > 0 ? static_cast<float>(r.expanded) / static_cast<float>(r.frames)
                    : 0.0f;
@@ -184,21 +163,24 @@ std::vector<RatedLevel> rateLibrary(const CurriculumConfig& cfg) {
       }
 
       if (!cached) {
-        // A level only needs as many frames as its own length can take. Even
-        // at the slowest speed tier the player covers 251 units per second,
-        // so a 26k-unit level is over in ~6300 frames. Budgeting the global
-        // 24000-frame ceiling for every level wasted 4x the backtrack memory
-        // for nothing, which is what pushed the process over its address
-        // space limit. 1.4x + 600 leaves room for slow/ship sections.
-        const float perFrame = phys::SPEEDS[0] * phys::DT;
+        // Estimate the native-tick horizon from level length at the slowest
+        // horizontal speed, then add 10 seconds for portals/ship sections.
+        // At 240 TPS this horizon is ~4x the old frame count, so using one
+        // global maximum for every level would massively over-allocate trails.
+        const float perTick = phys::SPEEDS[0] * phys::DT;
         int frameCap =
-            static_cast<int>(lv.length / std::max(1.0f, perFrame) * 1.4f) + phys::ticks(10.0f);
+            static_cast<int>(lv.length / std::max(0.001f, perTick) * 1.4f) +
+            phys::ticks(10.0f);
         if (frameCap > cfg.rateMaxFrames) frameCap = cfg.rateMaxFrames;
 
-        // Bound the beam by the memory budget for THIS level's frame cap. A
-        // requested width of 6000 on a long level would otherwise try to
-        // allocate gigabytes; now it is silently narrowed instead of dying.
-        const double bytesPerSlot = 8.0 * 2.5;  // trail slack included
+        // beam.cpp packs (parent, action) into one uint32_t = 4 bytes/tick.
+        // Trail history dominates long searches; 2.5x leaves headroom for the
+        // live frontier, candidate states, hash table and allocator overhead.
+        // This is intentionally conservative but no longer assumes the old
+        // padded 8-byte pair backpointer.
+        constexpr double kPackedTrailBytes = 4.0;
+        constexpr double kSearchHeadroom = 2.5;
+        const double bytesPerSlot = kPackedTrailBytes * kSearchHeadroom;
         int beamCap = static_cast<int>(static_cast<double>(cfg.memBudgetMb) *
                                       1024.0 * 1024.0 /
                                       (bytesPerSlot * std::max(1, frameCap)));
@@ -206,7 +188,7 @@ std::vector<RatedLevel> rateLibrary(const CurriculumConfig& cfg) {
 
         if (cfg.announce) {
           std::lock_guard<std::mutex> lock(ioMutex);
-          std::printf("  ... rating %-24s %4.0f blocks, %d frames, beam <= %d\n",
+          std::printf("  ... rating %-24s %4.0f blocks, %d ticks, beam <= %d\n",
                       r.name.c_str(), r.lengthBlocks, frameCap, beamCap);
           std::fflush(stdout);
         }
@@ -237,103 +219,153 @@ std::vector<RatedLevel> rateLibrary(const CurriculumConfig& cfg) {
           }
         }
       }
-
-      if (!r.solved && r.frames == 0 && r.progress <= 0.0f)
-        r.error = "dies at spawn (level starts inside geometry)";
       } catch (const std::exception& e) {
         r.error = e.what();
-        r.solved = false;
       } catch (...) {
-        r.error = "unknown failure";
-        r.solved = false;
+        r.error = "unknown exception";
       }
-      r.score = difficultyScore(r, minBeam);
+      r.score = difficultyScore(r);
       rated[static_cast<size_t>(i)] = std::move(r);
-
       const int n = done.fetch_add(1) + 1;
-      std::lock_guard<std::mutex> lock(ioMutex);
-      const RatedLevel& rr = rated[static_cast<size_t>(i)];
-      if (!rr.error.empty()) {
-        std::printf("  [%3d/%3d] %-28s ERROR    %s\n", n, total,
-                    rr.name.c_str(), rr.error.c_str());
-      } else if (rr.solved) {
-        std::printf("  [%3d/%3d] %-28s solved   beam %5d  %4.0f blocks  "
-                    "score %8.1f%s\n",
-                    n, total, rr.name.c_str(), rr.beamNeeded, rr.lengthBlocks,
-                    rr.score, cached ? "  (cached macro)" : "");
-      } else {
-        // A level stuck at the same percentage no matter how wide the beam is
-        // has a wall in the simulator, not a search-budget problem.
-        std::printf("  [%3d/%3d] %-28s UNSOLVED beam %5d  %4.0f blocks  "
-                    "stuck at %6.2f%% after %d frames\n",
-                    n, total, rr.name.c_str(), rr.beamNeeded, rr.lengthBlocks,
-                    rr.progress * 100.0f, rr.frames);
+      if (cfg.announce) {
+        std::lock_guard<std::mutex> lock(ioMutex);
+        const RatedLevel& rr = rated[static_cast<size_t>(i)];
+        std::printf("  [%d/%d] %-24s %6.2f%% beam=%d%s%s\n", n, total,
+                    rr.name.c_str(), rr.progress * 100.0f, rr.beamNeeded,
+                    rr.solved ? " SOLVED" : "",
+                    rr.error.empty() ? "" : " ERROR");
+        std::fflush(stdout);
       }
-      std::fflush(stdout);
     }
   };
 
-  // The beam keeps a backtrack trail of beamWidth * frames entries. At width
-  // 6000 that is ~1 GB for ONE level, so one level per core is how a machine
-  // dies of a silent bad_alloc halfway through the ranking.
-  const int maxBeam =
-      cfg.rateBeams.empty()
-          ? 400
-          : *std::max_element(cfg.rateBeams.begin(), cfg.rateBeams.end());
-  // Per-level frames are capped by level length in the worker above; a real GD
-  // level lands around 7-9k frames, not the 24000 global ceiling.
-  const int framesEst = std::min(cfg.rateMaxFrames, 12000);
-  // The trail is a vector of per-frame vectors: each row is its own heap
-  // allocation with capacity slack, and the candidate buffer lives beside it.
-  // The raw beamWidth*frames*8 figure was ~2.5x too optimistic, which is why a
-  // run with a "4096 MB budget" still died.
-  const double perThreadMb = static_cast<double>(maxBeam) *
-                             static_cast<double>(framesEst) * 8.0 * 2.5 /
-                             (1024.0 * 1024.0);
-  // A 32-bit process cannot address more than ~2 GB whatever the machine has,
-  // and Visual Studio generators default to Win32. That ceiling is real.
-  const bool is32bit = sizeof(void*) == 4;
-  int budget = cfg.memBudgetMb;
-  if (is32bit && budget > 1200) budget = 1200;
-  int memCap = static_cast<int>(static_cast<double>(budget) /
-                                std::max(1.0, perThreadMb));
-  if (memCap < 1) memCap = 1;
-  const int nThreads =
-      std::min(std::min(threadCount(cfg.threads), total), memCap);
-  std::printf("rating %d level(s) with the solver: %d thread(s) "
-              "(~%.0f MB per thread, budget %d MB%s)\n",
-              total, nThreads, perThreadMb, budget,
-              is32bit ? ", 32-bit build" : "");
-  if (is32bit)
-    std::printf("  warning: 32-bit build; address space is the real limit. "
-                "Rebuild with: cmake -B build -A x64\n");
-  if (perThreadMb > static_cast<double>(budget))
-    std::printf("  warning: one level alone needs ~%.0f MB, above the %d MB "
-                "budget. Lower --beams or raise --mem-budget-mb.\n",
-                perThreadMb, budget);
-  std::fflush(stdout);
-  std::vector<std::thread> pool;
-  for (int t = 1; t < nThreads; ++t) pool.emplace_back(worker);
-  worker();
-  for (std::thread& t : pool) t.join();
+  int threads = cfg.threads > 0 ? cfg.threads
+                                : static_cast<int>(std::thread::hardware_concurrency());
+  threads = std::clamp(threads, 1, total);
+  std::vector<std::thread> workers;
+  workers.reserve(static_cast<size_t>(threads));
+  for (int i = 0; i < threads; ++i) workers.emplace_back(worker);
+  for (std::thread& t : workers) t.join();
 
-  std::stable_sort(rated.begin(), rated.end(),
-                   [](const RatedLevel& a, const RatedLevel& b) {
-                     return a.score < b.score;
-                   });
+  std::stable_sort(rated.begin(), rated.end(), [](const RatedLevel& a,
+                                                  const RatedLevel& b) {
+    if (a.solved != b.solved) return a.solved > b.solved;
+    if (a.solved && b.solved) return a.score < b.score;
+    return a.progress > b.progress;
+  });
   return rated;
 }
 
 namespace {
 
-// Supervised trainer shared by every tier. Holds the imitation dataset, the
-// network, and the observation normaliser.
 class Trainer {
  public:
   Trainer(const CurriculumConfig& cfg, int obsDimension)
-      : cfg_(cfg), D_(obsDimension), rng_(cfg.seed) {
+      : cfg_(cfg), D_(obsDimension) {
     net_.build(D_, {cfg.hidden, cfg.hidden}, 2, cfg.seed);
     norm_.init(D_);
+  }
+
+  void add(const Level& level, const std::vector<uint8_t>& holds,
+           const State* start = nullptr) {
+    Sim sim(&level);
+    if (start) sim.restore(*start);
+    std::vector<float> row(static_cast<size_t>(D_));
+    for (uint8_t hold : holds) {
+      if (!sim.alive()) break;
+      encodeObs(sim, row.data());
+      X_.insert(X_.end(), row.begin(), row.end());
+      Y_.push_back(hold ? 1 : 0);
+      sim.step(hold != 0);
+    }
+    trim();
+  }
+
+  struct FitStats { double loss = 0, accuracy = 0; };
+
+  FitStats train(int epochs) {
+    FitStats stats;
+    const int n = static_cast<int>(Y_.size());
+    if (n == 0) return stats;
+    norm_.init(D_);
+    norm_.observe(X_.data(), n);
+    std::vector<float> xn = X_;
+    norm_.apply(xn.data(), n);
+
+    std::vector<int> idx(static_cast<size_t>(n));
+    std::iota(idx.begin(), idx.end(), 0);
+    std::mt19937 rng(static_cast<uint32_t>(cfg_.seed + trainCalls_++));
+    std::vector<float> batch, logits, values, probs, dlogits, dvalues;
+
+    int64_t nHold = 0;
+    for (uint8_t y : Y_) nHold += y ? 1 : 0;
+    const int64_t nRel = n - nHold;
+    float w[2] = {1.0f, 1.0f};
+    if (nHold > 0 && nRel > 0) {
+      w[0] = 0.5f * static_cast<float>(n) / static_cast<float>(nRel);
+      w[1] = 0.5f * static_cast<float>(n) / static_cast<float>(nHold);
+    }
+
+    for (int epoch = 0; epoch < epochs; ++epoch) {
+      std::shuffle(idx.begin(), idx.end(), rng);
+      double lossSum = 0.0;
+      int64_t correct = 0, seen = 0;
+      for (int at = 0; at < n; at += cfg_.minibatch) {
+        const int bs = std::min(cfg_.minibatch, n - at);
+        batch.resize(static_cast<size_t>(bs) * D_);
+        for (int b = 0; b < bs; ++b)
+          std::memcpy(batch.data() + static_cast<size_t>(b) * D_,
+                      xn.data() + static_cast<size_t>(idx[at + b]) * D_,
+                      sizeof(float) * D_);
+
+        net_.forward(batch.data(), bs, &logits, &values, true);
+        probs.resize(static_cast<size_t>(bs) * 2);
+        dlogits.assign(static_cast<size_t>(bs) * 2, 0.0f);
+        dvalues.assign(static_cast<size_t>(bs), 0.0f);
+        for (int b = 0; b < bs; ++b) {
+          nn::softmax(logits.data() + static_cast<size_t>(b) * 2, 2,
+                      probs.data() + static_cast<size_t>(b) * 2);
+          const int label = Y_[static_cast<size_t>(idx[at + b])];
+          const float wl = w[label];
+          lossSum += -wl * std::log(std::max(1e-8f,
+              probs[static_cast<size_t>(b) * 2 + label]));
+          const int pred = probs[static_cast<size_t>(b) * 2 + 1] >
+                                   probs[static_cast<size_t>(b) * 2]
+                               ? 1 : 0;
+          correct += pred == label ? 1 : 0;
+          seen++;
+          for (int k = 0; k < 2; ++k)
+            dlogits[static_cast<size_t>(b) * 2 + k] =
+                wl * (probs[static_cast<size_t>(b) * 2 + k] -
+                      (k == label ? 1.0f : 0.0f)) /
+                static_cast<float>(bs);
+        }
+        net_.zeroGrad();
+        net_.backward(batch.data(), bs, dlogits.data(), dvalues.data());
+        net_.clipGradNorm(cfg_.maxGradNorm);
+        net_.adamStep(cfg_.lr);
+      }
+      stats.loss = seen ? lossSum / static_cast<double>(seen) : 0.0;
+      stats.accuracy = seen ? static_cast<double>(correct) / static_cast<double>(seen)
+                            : 0.0;
+    }
+    return stats;
+  }
+
+  State rollout(const Level& level, std::vector<State>* trace,
+                std::vector<uint8_t>* holds) {
+    Sim sim(&level);
+    std::vector<float> obs(static_cast<size_t>(D_)), logits, values;
+    for (int f = 0; f < cfg_.evalMaxFrames && sim.alive(); ++f) {
+      if (trace) trace->push_back(sim.state());
+      encodeObs(sim, obs.data());
+      norm_.apply(obs.data(), 1);
+      net_.forward(obs.data(), 1, &logits, &values, false);
+      const bool hold = logits[1] > logits[0];
+      if (holds) holds->push_back(hold ? 1 : 0);
+      sim.step(hold);
+    }
+    return sim.state();
   }
 
   bool loadModel(const std::string& dir) {
@@ -406,218 +438,70 @@ class Trainer {
 
   int samples() const { return static_cast<int>(Y_.size()); }
 
-  // Replays a macro and records (observation -> button) for every frame.
-  void addTrajectory(const Level& level, const State* start,
-                     const std::vector<uint8_t>& holds) {
-    Sim sim(&level);
-    if (start) sim.restore(*start);
-    std::vector<float> row(static_cast<size_t>(D_));
-    for (size_t f = 0; f < holds.size() && sim.alive(); ++f) {
-      encodeObs(sim, row.data());
-      X_.insert(X_.end(), row.begin(), row.end());
-      Y_.push_back(holds[f] ? 1 : 0);
-      sim.step(holds[f] != 0);
-    }
-    capDataset();
-  }
-
-  struct FitStats {
-    double loss = 0;
-    double accuracy = 0;
-  };
-
-  FitStats train(int epochs) {
-    const int n = samples();
-    FitStats out;
-    if (n <= 0) return out;
-
-    // Re-fit the normaliser on everything we know, then train on a normalised
-    // copy of the dataset.
-    norm_.init(D_);
-    norm_.observe(X_.data(), n);
-    std::vector<float> Xn = X_;
-    norm_.apply(Xn.data(), n);
-
-    // ~80% of frames are "do not press". Without class weights the cheapest
-    // policy is one that never presses, and that is exactly what the first
-    // version of this trainer learned.
-    int64_t nHold = 0;
-    for (int i = 0; i < n; ++i) nHold += Y_[static_cast<size_t>(i)] ? 1 : 0;
-    const int64_t nRel = n - nHold;
-    float w[2] = {1.0f, 1.0f};
-    if (nHold > 0 && nRel > 0) {
-      w[0] = 0.5f * static_cast<float>(n) / static_cast<float>(nRel);
-      w[1] = 0.5f * static_cast<float>(n) / static_cast<float>(nHold);
-    }
-
-    std::vector<int> idx(static_cast<size_t>(n));
-    for (int i = 0; i < n; ++i) idx[static_cast<size_t>(i)] = i;
-
-    const int mb = std::max(1, cfg_.minibatch);
-    std::vector<float> buf, logits, values, probs, dLogits, dValues;
-
-    for (int ep = 0; ep < epochs; ++ep) {
-      // Anneal inside the stage. At a fixed rate this trainer oscillates and
-      // never settles (measured: fit bounced 49% -> 90% -> 73% between
-      // epochs); decaying to a tenth of the rate fixes it.
-      const float lrEp =
-          cfg_.lr * (0.1f + 0.9f * (1.0f - static_cast<float>(ep) /
-                                               static_cast<float>(std::max(1, epochs))));
-      for (int i = n - 1; i > 0; --i)
-        std::swap(idx[static_cast<size_t>(i)],
-                  idx[static_cast<size_t>(rng_.below(i + 1))]);
-
-      double epochLoss = 0;
-      int64_t correct = 0, seen = 0;
-      for (int s = 0; s < n; s += mb) {
-        const int bs = std::min(mb, n - s);
-        buf.resize(static_cast<size_t>(bs) * D_);
-        for (int b = 0; b < bs; ++b)
-          std::memcpy(buf.data() + static_cast<size_t>(b) * D_,
-                      Xn.data() + static_cast<size_t>(idx[static_cast<size_t>(s + b)]) * D_,
-                      sizeof(float) * static_cast<size_t>(D_));
-
-        net_.forward(buf.data(), bs, &logits, &values, /*cache=*/true);
-        probs.resize(static_cast<size_t>(bs) * 2);
-        dLogits.assign(static_cast<size_t>(bs) * 2, 0.0f);
-        dValues.assign(static_cast<size_t>(bs), 0.0f);
-        for (int b = 0; b < bs; ++b) {
-          nn::softmax(logits.data() + b * 2, 2, probs.data() + b * 2);
-          const int label = Y_[static_cast<size_t>(idx[static_cast<size_t>(s + b)])];
-          const float wl = w[label];
-          epochLoss += -static_cast<double>(wl) *
-                       std::log(std::max(1e-8f, probs[static_cast<size_t>(b) * 2 + label]));
-          const int pred = probs[static_cast<size_t>(b) * 2 + 1] >
-                                   probs[static_cast<size_t>(b) * 2 + 0]
-                               ? 1
-                               : 0;
-          correct += (pred == label) ? 1 : 0;
-          seen++;
-          for (int k = 0; k < 2; ++k)
-            dLogits[static_cast<size_t>(b) * 2 + k] =
-                wl * (probs[static_cast<size_t>(b) * 2 + k] -
-                      (k == label ? 1.0f : 0.0f)) /
-                static_cast<float>(bs);
-        }
-        net_.zeroGrad();
-        net_.backward(buf.data(), bs, dLogits.data(), dValues.data());
-        net_.clipGradNorm(cfg_.maxGradNorm);
-        net_.adamStep(lrEp);
-      }
-      out.loss = seen ? epochLoss / static_cast<double>(seen) : 0.0;
-      out.accuracy =
-          seen ? static_cast<double>(correct) / static_cast<double>(seen) : 0.0;
-      if (cfg_.verbose && (ep % 20 == 0 || ep == epochs - 1))
-        std::printf("        epoch %3d  loss %.4f  fit %.2f%%\n", ep, out.loss,
-                    out.accuracy * 100.0);
-    }
-    return out;
-  }
-
-  // Greedy (argmax) rollout. `trace` receives the state before each frame so a
-  // failed attempt can be handed back to the solver.
-  State rollout(const Level& level, std::vector<State>* trace,
-                std::vector<uint8_t>* holds) {
-    Sim sim(&level);
-    std::vector<float> row(static_cast<size_t>(D_)), logits, values;
-    for (int f = 0; f < cfg_.evalMaxFrames && sim.alive(); ++f) {
-      if (trace) trace->push_back(sim.state());
-      encodeObs(sim, row.data());
-      norm_.apply(row.data(), 1);
-      net_.forward(row.data(), 1, &logits, &values, /*cache=*/false);
-      const bool hold = logits[1] > logits[0];
-      if (holds) holds->push_back(hold ? 1 : 0);
-      sim.step(hold);
-    }
-    return sim.state();
-  }
-
  private:
-  void capDataset() {
-    const int n = samples();
-    if (cfg_.maxSamples <= 0 || n <= cfg_.maxSamples) return;
-    // Random subsample. Keeping a uniform sample of everything seen beats
-    // dropping the oldest data, which is where the easy tiers live.
-    const int keep = cfg_.maxSamples;
-    std::vector<int> pick(static_cast<size_t>(n));
-    for (int i = 0; i < n; ++i) pick[static_cast<size_t>(i)] = i;
-    for (int i = n - 1; i > 0; --i)
-      std::swap(pick[static_cast<size_t>(i)],
-                pick[static_cast<size_t>(rng_.below(i + 1))]);
-    pick.resize(static_cast<size_t>(keep));
-    std::sort(pick.begin(), pick.end());
-    std::vector<float> nx(static_cast<size_t>(keep) * D_);
-    std::vector<uint8_t> ny(static_cast<size_t>(keep));
-    for (int i = 0; i < keep; ++i) {
-      std::memcpy(nx.data() + static_cast<size_t>(i) * D_,
-                  X_.data() + static_cast<size_t>(pick[static_cast<size_t>(i)]) * D_,
-                  sizeof(float) * static_cast<size_t>(D_));
-      ny[static_cast<size_t>(i)] = Y_[static_cast<size_t>(pick[static_cast<size_t>(i)])];
-    }
+  void trim() {
+    if (cfg_.maxSamples <= 0 || static_cast<int>(Y_.size()) <= cfg_.maxSamples)
+      return;
+    const size_t keep = static_cast<size_t>(cfg_.maxSamples);
+    const size_t drop = Y_.size() - keep;
+    std::vector<float> nx(X_.begin() + static_cast<ptrdiff_t>(drop * D_), X_.end());
+    std::vector<uint8_t> ny(Y_.begin() + static_cast<ptrdiff_t>(drop), Y_.end());
     X_.swap(nx);
     Y_.swap(ny);
   }
 
-  CurriculumConfig cfg_;
-  int D_;
-  Lcg rng_;
+  const CurriculumConfig& cfg_;
+  int D_ = 0;
   nn::Net net_;
   RunningNorm norm_;
   std::vector<float> X_;
   std::vector<uint8_t> Y_;
+  int trainCalls_ = 0;
 };
+
+Level loadRatedLevel(const RatedLevel& r) {
+  if (!r.path.empty()) return Level::loadGdl(r.path);
+  // Generated paths are empty. Their names are "proc_d<d>_s<s>".
+  int d = 0, s = 0;
+  if (std::sscanf(r.name.c_str(), "proc_d%d_s%d", &d, &s) == 2)
+    return makeTrainingLevel(d, static_cast<uint64_t>(s) + 1);
+  throw std::runtime_error("cannot reconstruct procedural level " + r.name);
+}
 
 }  // namespace
 
 int runCurriculum(const CurriculumConfig& cfg) {
-  fs::create_directories(cfg.outDir);
-
-  const auto t0 = std::chrono::steady_clock::now();
   std::vector<RatedLevel> rated = rateLibrary(cfg);
   if (rated.empty()) {
-    std::printf("no levels found (looked in %zu director%s)\n",
-                cfg.levelDirs.size(), cfg.levelDirs.size() == 1 ? "y" : "ies");
+    std::printf("no levels found\n");
     return 2;
   }
 
-  // ---- the curriculum manifest, easiest first ----
-  {
-    std::ofstream f(cfg.outDir + "/curriculum.csv");
-    f << "rank,name,score,solved,progress,beam_needed,frames,expanded,"
-         "length_blocks,objects_per_block,error,path\n";
+  if (cfg.rateOnly) {
+    std::printf("\n%-4s %-26s %-9s %-7s %-8s %-10s\n", "#", "level", "progress",
+                "beam", "frames", "score");
     for (size_t i = 0; i < rated.size(); ++i) {
       const RatedLevel& r = rated[i];
-      f << i << ',' << r.name << ',' << r.score << ',' << (r.solved ? 1 : 0)
-        << ',' << r.progress << ',' << r.beamNeeded << ',' << r.frames << ','
-        << r.expanded << ',' << r.lengthBlocks << ',' << r.objectsPerBlock
-        << ',' << r.error << ',' << r.path << '\n';
+      std::printf("%-4zu %-26s %7.2f%% %-7d %-8d %-10.2f%s\n", i + 1,
+                  r.name.c_str(), r.progress * 100.0f, r.beamNeeded, r.frames,
+                  r.score, r.solved ? " SOLVED" : "");
     }
+    return 0;
   }
-  int solvedCount = 0;
-  for (const RatedLevel& r : rated) solvedCount += r.solved ? 1 : 0;
-  std::printf("\ncurriculum: %zu levels, %d beatable by the solver -> %s\n",
-              rated.size(), solvedCount,
-              (cfg.outDir + "/curriculum.csv").c_str());
-  if (cfg.rateOnly) return 0;
 
-  // Levels the solver cannot beat have no oracle, so there is nothing to
-  // imitate. They are kept in the manifest but skipped in training unless
-  // asked for explicitly.
   std::vector<RatedLevel> useable;
-  for (RatedLevel& r : rated)
-    if (r.solved || cfg.keepUnsolved) useable.push_back(std::move(r));
+  for (RatedLevel& r : rated) {
+    if (!r.solved) continue;
+    Level lv = loadRatedLevel(r);
+    if (!verifyMacro(lv, r.oracle).solved) continue;
+    useable.push_back(std::move(r));
+  }
   if (useable.empty()) {
-    std::printf("the solver could not beat a single level; nothing to imitate\n");
-    return 1;
+    std::printf("no replay-verified solved levels available for training\n");
+    return 3;
   }
 
-  // Levels must live somewhere stable: Sim keeps a pointer to them.
-  std::vector<Level> levels;
-  levels.reserve(useable.size());
-  for (const RatedLevel& r : useable)
-    levels.push_back(r.path.empty() ? makeTrainingLevel(0, 1)
-                                    : Level::loadGdl(r.path));
-
+  fs::create_directories(cfg.outDir);
   Trainer trainer(cfg, obsDim());
   if (cfg.resume && trainer.loadFrom(cfg.outDir))
     std::printf("resumed native-240 policy + %d DAgger samples from %s\n",
@@ -626,10 +510,18 @@ int runCurriculum(const CurriculumConfig& cfg) {
     std::printf("resume requested but no compatible 240-TPS checkpoint found; starting clean\n");
 
   std::ofstream log(cfg.outDir + "/curriculum_log.csv");
-  log << "tier,round,active_levels,samples,loss,fit,mean_progress,cleared\n";
+  log << "tier,round,active,samples,loss,accuracy,mean_progress,cleared\n";
 
-  const int tiers = std::max(1, cfg.tiers);
-  const int n = static_cast<int>(useable.size());
+  std::vector<Level> levels;
+  levels.reserve(useable.size());
+  for (RatedLevel& r : useable) {
+    Level lv = loadRatedLevel(r);
+    levels.push_back(lv);
+    trainer.add(levels.back(), r.oracle);
+  }
+
+  const int n = static_cast<int>(levels.size());
+  const int tiers = std::max(1, std::min(cfg.tiers, n));
   int active = 0;   // number of levels unlocked so far
 
   auto scorePolicy = [&](int count) {
@@ -646,17 +538,9 @@ int runCurriculum(const CurriculumConfig& cfg) {
   };
 
   for (int tier = 0; tier < tiers; ++tier) {
-    const int upTo = std::min(n, static_cast<int>(std::llround(
-                                    static_cast<double>(n) * (tier + 1) / tiers)));
-    if (upTo <= active) continue;
-
-    // Unlock this tier: its oracle solutions enter the training mix, while
-    // every earlier tier stays in it (that is what prevents forgetting).
-    for (int i = active; i < upTo; ++i)
-      if (!useable[static_cast<size_t>(i)].oracle.empty())
-        trainer.addTrajectory(levels[static_cast<size_t>(i)], nullptr,
-                              useable[static_cast<size_t>(i)].oracle);
-    active = upTo;
+    const int target = std::max(active + 1,
+        static_cast<int>(std::ceil(static_cast<double>(n) * (tier + 1) / tiers)));
+    active = std::min(n, target);
 
     std::printf("\n=== tier %d/%d: %d level(s) unlocked, hardest so far '%s' ===\n",
                 tier + 1, tiers, active,
@@ -670,34 +554,24 @@ int runCurriculum(const CurriculumConfig& cfg) {
 
     for (int round = 0; round < cfg.roundsPerTier; ++round) {
       Trainer::FitStats fit = trainer.train(cfg.epochs);
-
-      // Evaluate the policy alone on everything unlocked.
-      double progSum = 0;
-      int cleared = 0, worst = 0;
-      float worstProg = 2.0f;
-      std::vector<State> worstTrace;
+      int cleared = 0;
+      double meanProg = 0.0;
+      std::vector<State> deaths(static_cast<size_t>(active));
+      std::vector<std::vector<State>> traces(static_cast<size_t>(active));
       for (int i = 0; i < active; ++i) {
-        std::vector<State> trace;
-        const State end = trainer.rollout(levels[static_cast<size_t>(i)], &trace,
-                                          nullptr);
-        const float prog =
-            end.won ? 1.0f
-                    : std::min(1.0f, end.x / std::max(1.0f,
-                                                      levels[static_cast<size_t>(i)].length));
-        progSum += prog;
-        if (end.won) cleared++;
-        if (!end.won && prog < worstProg) {
-          worstProg = prog;
-          worst = i;
-          worstTrace = std::move(trace);
-        }
+        State end = trainer.rollout(levels[static_cast<size_t>(i)],
+                                    &traces[static_cast<size_t>(i)], nullptr);
+        deaths[static_cast<size_t>(i)] = end;
+        const float prog = end.won ? 1.0f
+            : std::min(1.0f, end.x / std::max(1.0f, levels[static_cast<size_t>(i)].length));
+        meanProg += prog;
+        cleared += end.won ? 1 : 0;
       }
-      const double meanProg = progSum / std::max(1, active);
-      std::printf("  round %2d  samples %7d  loss %.4f  fit %6.2f%%  "
-                  "mean %6.2f%%  cleared %d/%d\n",
-                  round, trainer.samples(), fit.loss, fit.accuracy * 100.0,
-                  meanProg * 100.0, cleared, active);
-      std::fflush(stdout);
+      meanProg /= std::max(1, active);
+
+      std::printf("  round %d: loss %.4f acc %.1f%% mean %.2f%% cleared %d/%d samples %d\n",
+                  round + 1, fit.loss, fit.accuracy * 100.0, meanProg * 100.0,
+                  cleared, active, trainer.samples());
       log << tier << ',' << round << ',' << active << ',' << trainer.samples()
           << ',' << fit.loss << ',' << fit.accuracy << ',' << meanProg << ','
           << cleared << '\n';
@@ -719,42 +593,38 @@ int runCurriculum(const CurriculumConfig& cfg) {
       }
 
       if (cleared >= static_cast<int>(std::ceil(cfg.promote * active))) {
-        std::printf("  promotion threshold reached, unlocking the next tier\n");
+        std::printf("    promotion threshold met\n");
         break;
       }
-      if (worstTrace.empty()) break;
 
-      // ---- DAgger: ask the solver to rescue the level we are worst at ----
-      const Level& lv = levels[static_cast<size_t>(worst)];
-      const int have = static_cast<int>(worstTrace.size());
-      bool rescued = false;
-      for (int back : {phys::ticks(0.5f), phys::ticks(1.5f),
+      // DAgger rescue: for each failed policy rollout, branch exact search from
+      // increasingly earlier points in its trace. A successful continuation is
+      // an on-distribution corrective demonstration.
+      for (int i = 0; i < active; ++i) {
+        if (deaths[static_cast<size_t>(i)].won) continue;
+        auto& trace = traces[static_cast<size_t>(i)];
+        for (int back : {phys::ticks(0.5f), phys::ticks(1.5f),
                        phys::ticks(4.0f), phys::ticks(10.0f)}) {
-        const int at = have - back;
-        if (at <= 0) continue;
-        SolveOptions o;
-        o.beamWidth = cfg.rescueBeam;
-        o.maxFrames = cfg.evalMaxFrames;
-        o.stallFrames = phys::ticks(10.0f);
-        o.verbose = false;
-        o.hasStart = true;
-        o.start = worstTrace[static_cast<size_t>(at)];
-        SolveResult r = beamSolve(lv, o);
-        if (r.solved) {
-          trainer.addTrajectory(
-              lv, &worstTrace[static_cast<size_t>(at)],
-              minimizeMacro(lv, r.holds, &worstTrace[static_cast<size_t>(at)]));
-          rescued = true;
+          if (trace.empty()) break;
+          const int at = std::max(0, static_cast<int>(trace.size()) - 1 - back);
+          SolveOptions so;
+          so.beamWidth = cfg.rescueBeam;
+          so.maxFrames = cfg.evalMaxFrames;
+          so.stallFrames = phys::ticks(10.0f);
+          so.verbose = false;
+          so.hasStart = true;
+          so.start = trace[static_cast<size_t>(at)];
+          SolveResult sr = beamSolve(levels[static_cast<size_t>(i)], so);
+          if (!sr.solved) continue;
+          std::vector<uint8_t> correction =
+              minimizeMacro(levels[static_cast<size_t>(i)], sr.holds,
+                            &trace[static_cast<size_t>(at)]);
+          trainer.add(levels[static_cast<size_t>(i)], correction,
+                      &trace[static_cast<size_t>(at)]);
           break;
         }
       }
-      std::printf("    %s on '%s' (policy reached %.2f%%)\n",
-                  rescued ? "added a corrective demonstration"
-                          : "no rescue found; re-training on existing data",
-                  useable[static_cast<size_t>(worst)].name.c_str(),
-                  worstProg * 100.0f);
     }
-
     // Always leave the best policy seen in this tier, never the last update.
     if (!trainer.loadModel(guardDir))
       throw std::runtime_error("failed to restore final protected tier champion");
@@ -764,39 +634,21 @@ int runCurriculum(const CurriculumConfig& cfg) {
   }
 
   // ---- final report ----
-  std::printf("\nfinal policy evaluation over the whole library\n");
-  double progSum = 0;
+  std::printf("\nfinal curriculum evaluation\n");
   int cleared = 0;
+  double mean = 0;
   for (int i = 0; i < n; ++i) {
-    std::vector<uint8_t> holds;
-    const State end = trainer.rollout(levels[static_cast<size_t>(i)], nullptr,
-                                      &holds);
-    const float prog =
-        end.won ? 1.0f
-                : std::min(1.0f, end.x / std::max(1.0f,
-                                                  levels[static_cast<size_t>(i)].length));
-    progSum += prog;
+    const State end = trainer.rollout(levels[static_cast<size_t>(i)], nullptr, nullptr);
+    const float p = end.won ? 1.0f
+                            : std::min(1.0f, end.x / std::max(1.0f, levels[static_cast<size_t>(i)].length));
+    mean += p;
     cleared += end.won ? 1 : 0;
-    std::printf("  %-28s %6.2f%%%s\n", useable[static_cast<size_t>(i)].name.c_str(),
-                prog * 100.0f, end.won ? "  COMPLETE" : "");
-    if (end.won && !cfg.macroDir.empty()) {
-      Macro m;
-      m.level = useable[static_cast<size_t>(i)].name;
-      m.progress = 1.0f;
-      m.holds = holds;
-      m.save(cfg.macroDir + "/" + useable[static_cast<size_t>(i)].name +
-             ".policy.macro");
-    }
+    std::printf("  %-26s %6.2f%%%s\n", useable[static_cast<size_t>(i)].name.c_str(),
+                p * 100.0f, end.won ? " COMPLETE" : "");
   }
-  trainer.saveTo(cfg.outDir);
-  const double secs =
-      std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  std::printf("\npolicy alone: mean %.2f%%, cleared %d/%d   (%.1f min)\n"
-              "solver macros for every beatable level are in %s/\n"
-              "checkpoint -> %s\n",
-              progSum / std::max(1, n) * 100.0, cleared, n, secs / 60.0,
-              cfg.macroDir.c_str(), cfg.outDir.c_str());
-  return cleared == n ? 0 : 3;
+  std::printf("mean %.2f%%, cleared %d/%d\n", mean / std::max(1, n) * 100.0,
+              cleared, n);
+  return 0;
 }
 
 }  // namespace gd
