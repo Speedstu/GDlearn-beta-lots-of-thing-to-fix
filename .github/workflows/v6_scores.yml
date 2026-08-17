@@ -1,0 +1,27 @@
+name: v6 demon scores
+on: {push: {branches: [agent/gdlearn2-physics-v6], paths: [.github/workflows/v6_scores.yml]}}
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null; cmake --build build -j"$(nproc)" >/dev/null; ./build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep; python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'; python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          ./build/gdlearn solve /tmp/l/c.gdl --beam 6144 --widen 0 --max-frames 16000 --stall 8000 --out /tmp/c.macro | tee /tmp/c.log
+          ./build/gdlearn solve /tmp/l/t.gdl --beam 6144 --widen 0 --max-frames 16000 --stall 8000 --out /tmp/t.macro | tee /tmp/t.log
+          ./build/gdlearn solve /tmp/l/d.gdl --beam 6144 --widen 0 --max-frames 16000 --stall 8000 --out /tmp/d.macro | tee /tmp/d.log
+          set -e
+          python3 - <<'PY'
+          import re,json
+          def m(p):
+            x=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?verify\s+([0-9.]+)%',open(p).read());
+            if not x:return None
+            a,b=map(float,x[-1]);return [a,b]
+          print('V6_DEMON_SCORES',json.dumps({'club':m('/tmp/c.log'),'toe2':m('/tmp/t.log'),'dead':m('/tmp/d.log')},sort_keys=True))
+          PY
