@@ -234,18 +234,6 @@ void Sim::resolveWorld(float prevY) {
     }
   }
 
-  // Pass 2: hazards (inner hitbox), then solids, then boosts.
-  for (int i = 0; i < n; ++i) {
-    const Object& o = objs[idx[i]];
-    if (o.kind != Kind::Hazard) continue;
-    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {
-      lastContactUid_ = o.uid;
-      deathUid_ = o.uid;
-      st_.dead = true;
-      return;
-    }
-  }
-
   bool landed = false;
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
@@ -329,6 +317,20 @@ void Sim::resolveWorld(float prevY) {
         applyOrb(o);
     }
   }
+  // Hazards are checked after portals, solid contact correction and pads/orbs.
+  // This avoids killing the pre-correction pose when GD would first snap the
+  // player onto a valid surface or trigger an overlapping gameplay object.
+  for (int i = 0; i < n; ++i) {
+    const Object& o = objs[idx[i]];
+    if (o.kind != Kind::Hazard) continue;
+    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {
+      lastContactUid_ = o.uid;
+      deathUid_ = o.uid;
+      st_.dead = true;
+      return;
+    }
+  }
+
 }
 
 void Sim::applyPad(const Object& o) {
