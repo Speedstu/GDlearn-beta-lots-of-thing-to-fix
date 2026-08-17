@@ -44,7 +44,7 @@ HAZARD_IDS = {
 # until live hitbox calibration proves otherwise.
 SOLID_IDS = set(range(1, 8)) | {
     40, 62, 63, 467, 468, 469,
-    193, 194, 195, 196, 198, 199,
+    194, 195, 196, 198, 199,
     204, 205, 206, 207, 208, 209,
     *range(247, 260),
     71, 72, 73, 74, 75, 76, 77, 78,
@@ -175,18 +175,39 @@ def classify(props: Dict[int, str]) -> Optional[GdlObject]:
     rot = _f(props, 6, 0.0)
 
     if oid in PORTALS:
-        return GdlObject('portal', PORTALS[oid], x, y, 12.0 * sx, 45.0 * sy, oid)
+        if oid in (12, 13, 47, 111, 660):
+            pw, ph = 17.0, 43.0
+        elif oid in (10, 11):
+            pw, ph = 12.5, 37.5
+        elif oid in (99, 101):
+            pw, ph = 15.5, 45.0
+        else:
+            pw, ph = 12.0, 45.0
+        return GdlObject('portal', PORTALS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in SPEEDS:
-        return GdlObject('speed', SPEEDS[oid], x, y, 10.0 * sx, 20.0 * sy, oid)
+        dims = {200:(17.5,22.0), 201:(16.5,28.0), 202:(25.5,28.0),
+                203:(32.5,28.0), 1334:(34.5,28.0)}
+        pw, ph = dims.get(oid, (10.0,20.0))
+        return GdlObject('speed', SPEEDS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in PADS:
-        return GdlObject('pad', PADS[oid], x, y, 15.0 * sx, 5.0 * sy, oid)
+        dims = {35:(12.5,2.0), 140:(12.5,2.5), 67:(12.5,3.0)}
+        pw, ph = dims.get(oid, (15.0,5.0))
+        return GdlObject('pad', PADS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in ORBS:
         return GdlObject('orb', ORBS[oid], x, y, 18.0 * sx, 18.0 * sy, oid)
     if oid in HAZARD_IDS:
-        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
+        if oid == 991:
+            bhw, bhh = 1.200195315 * sx, 1.600006105 * sy
+        else:
+            bhw, bhh = 4.0 * sx, 8.0 * sy
+        hw, hh = _rotated_half_extents(bhw, bhh, rot)
         return GdlObject('hazard', 0, x, y, hw, hh, oid)
     if oid in SOLID_IDS:
-        hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)
+        if oid == 468:
+            bhw, bhh = 15.0 * sx, 0.75 * sy
+        else:
+            bhw, bhh = 15.0 * sx, 15.0 * sy
+        hw, hh = _rotated_half_extents(bhw, bhh, rot)
         return GdlObject('solid', 0, x, y, hw, hh, oid)
     return None
 
