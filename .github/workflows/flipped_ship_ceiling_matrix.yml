@@ -1,0 +1,110 @@
+name: flipped ship ceiling matrix
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/flipped_ship_ceiling_matrix.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, no_special, real_face, floor_guard]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply flight-neutral beam and ceiling variant
+        shell: python
+        env:
+          V: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v=os.environ['V']
+
+          # Keep the already-validated beam improvement constant across every
+          # ceiling variant: flight modes must not be ranked by world-space y.
+          p=Path('src/search/beam.cpp'); s=p.read_text()
+          old='''        float score = ns.x + 0.02f * (ns.y * ns.gdir()) +\n                      (ns.onGround ? 0.5f : 0.0f);\n'''
+          new='''        const bool flight = ns.mode == Mode::Ship || ns.mode == Mode::Ufo ||\n                            ns.mode == Mode::Wave || ns.mode == Mode::Swing;\n        float score = flight ? ns.x\n                             : ns.x + 0.02f * (ns.y * ns.gdir()) +\n                                   (ns.onGround ? 0.5f : 0.0f);\n'''
+          if old not in s: raise SystemExit('beam score anchor missing')
+          p.write_text(s.replace(old,new,1))
+
+          if v=='baseline':
+              print(v); raise SystemExit(0)
+
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          begin='''    // Symmetric clamp for flipped gravity.\n'''
+          end='''    }\n  }\n\n  int n = 0;\n'''
+          i=s.find(begin)
+          if i<0: raise SystemExit('flipped clamp start missing')
+          j=s.find(end,i)
+          if j<0: raise SystemExit('flipped clamp end missing')
+          block=s[i:j+6]
+
+          if v=='no_special':
+              # The regular dynamic flight ceiling above already applies to
+              # every flight mode, independent of gravity. Do not apply a
+              # second gravity-specific remote clamp.
+              s=s[:i] + '''    // No second flipped-gravity ceiling: the regular flight corridor\n    // clamp above is already gravity-independent.\n''' + s[j+6:]
+
+          elif v=='real_face':
+              oldcand='''            const float cand = botY - phys::FLIGHT_CEILING;\n'''
+              newcand='''            const float cand = botY - hh;\n'''
+              if oldcand not in block: raise SystemExit('candidate anchor missing')
+              s=s[:i] + block.replace(oldcand,newcand,1) + s[j+6:]
+
+          elif v=='floor_guard':
+              oldcand='''            const float cand = botY - phys::FLIGHT_CEILING;\n            if (cand < flipRef) flipRef = cand;   // take the lowest\n'''
+              newcand='''            const float cand = std::max(level_->floorY + hh,\n                                        botY - phys::FLIGHT_CEILING);\n            if (cand < flipRef) flipRef = cand;   // take the lowest\n'''
+              if oldcand not in block: raise SystemExit('guard candidate anchor missing')
+              s=s[:i] + block.replace(oldcand,newcand,1) + s[j+6:]
+          else:
+              raise SystemExit('unknown variant '+v)
+          p.write_text(s)
+          print(v)
+
+      - name: Build, solve and trace demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          /tmp/build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 8192 --widen 0 --max-frames 43200 --stall 16000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 26000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 20000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          /tmp/build/gdlearn trace /tmp/l/t.gdl --macro /tmp/t.macro --frames 20000 --from 0 > /tmp/t.trace
+
+      - name: Metrics and physical invariant
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+          def pct(k):
+              t=Path('/tmp/log/'+k+'.log').read_text()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+              return float(m[-1]) if m else -1.0
+          ys=[]
+          for line in Path('/tmp/t.trace').read_text().splitlines():
+              m=re.match(r'\s*\d+\s+(?:HOLD|\.\.\.\.)\s+[\d.-]+\s+([\d.-]+)',line)
+              if m: ys.append(float(m.group(1))*30.0)
+          if not ys: raise SystemExit('trace did not parse')
+          r={'clubstep':pct('c'),'toe2':pct('t'),'deadlocked':pct('d'),
+             'toe2_min_y_world':min(ys)}
+          print('RESULT',r)
+          # Report rather than fail baseline so every matrix result remains
+          # visible. Any candidate selected for promotion must satisfy >= 0.
+          print('PHYS_SAFE', min(ys) >= 0.0)
