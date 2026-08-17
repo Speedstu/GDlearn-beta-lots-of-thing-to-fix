@@ -39,6 +39,43 @@ inline float roundWorldVy(float worldVy, bool flip) {
   return static_cast<float>(rel * (flip ? -1.0 : 1.0) / phys::TPS);
 }
 
+inline float cubePadUS(PadKind k, bool mini) {
+  float v = 0.0f;
+  switch (k) {
+    case PadKind::Yellow: v = 864.0f; break;
+    case PadKind::Pink: v = 561.6f; break;
+    case PadKind::Red: v = 1080.0f; break;
+    case PadKind::Blue: v = -345.6f; break;
+  }
+  return mini ? v * 0.8f : v;
+}
+
+inline float cubeOrbUS(OrbKind k, int tier, bool mini) {
+  const int i = std::clamp(tier, 0, 3);
+  static constexpr float yellow[4] = {573.48f,603.72f,616.68f,606.42f};
+  static constexpr float blue[4]   = {-229.392f,-241.488f,-246.672f,-242.568f};
+  static constexpr float pink[4]   = {412.884f,434.7f,443.988f,436.644f};
+  static constexpr float red[4]    = {779.976f,821.448f,839.43f,825.174f};
+  static constexpr float green[4]  = {562.032f,592.056f,605.07f,594.756f};
+  float v = 0.0f;
+  switch (k) {
+    case OrbKind::Yellow: v=yellow[i]; break;
+    case OrbKind::Blue: v=blue[i]; break;
+    case OrbKind::Pink: v=pink[i]; break;
+    case OrbKind::Red: v=red[i]; break;
+    case OrbKind::Green: v=green[i]; break;
+    case OrbKind::Black: v=-810.0f; break;
+    case OrbKind::Dash: v=0.0f; break;
+  }
+  if (!mini) return v;
+  if (k == OrbKind::Yellow) { static constexpr float a[4]={458.784f,482.976f,481.734f,485.136f}; return a[i]; }
+  if (k == OrbKind::Blue)   { static constexpr float a[4]={-183.519f,-193.185f,-197.343f,-194.049f}; return a[i]; }
+  if (k == OrbKind::Pink)   { static constexpr float a[4]={330.318f,347.76f,355.212f,349.272f}; return a[i]; }
+  if (k == OrbKind::Red)    { static constexpr float a[4]={621.702f,654.858f,669.222f,657.828f}; return a[i]; }
+  if (k == OrbKind::Green)  { static constexpr float a[4]={447.336f,471.312f,481.734f,485.136f}; return a[i]; }
+  return v;
+}
+
 }  // namespace
 
 void Sim::reset() {
@@ -374,33 +411,40 @@ void Sim::resolveWorld(float prevY) {
 void Sim::applyPad(const Object& o) {
   lastContactUid_ = o.uid;
   st_.lastPadUid = o.uid;
-  switch (static_cast<PadKind>(o.sub)) {
+  const PadKind k = static_cast<PadKind>(o.sub);
+  if (st_.mode == Mode::Cube) {
+    if (k == PadKind::Blue) st_.flip = !st_.flip;
+    const float rel = cubePadUS(k, st_.mini);
+    st_.vy = (rel / phys::TPS) * st_.gdir();
+    st_.onGround = false;
+    return;
+  }
+  switch (k) {
     case PadKind::Yellow: boost(phys::PAD_YELLOW); break;
     case PadKind::Pink: boost(phys::PAD_PINK); break;
     case PadKind::Red: boost(phys::PAD_RED); break;
-    case PadKind::Blue:
-      st_.flip = !st_.flip;
-      boost(phys::PAD_BLUE, /*alongGravity=*/true);
-      break;
+    case PadKind::Blue: st_.flip=!st_.flip; boost(phys::PAD_BLUE,true); break;
   }
 }
 
 void Sim::applyOrb(const Object& o) {
   lastContactUid_ = o.uid;
   st_.lastOrbUid = o.uid;
-  switch (static_cast<OrbKind>(o.sub)) {
+  const OrbKind k = static_cast<OrbKind>(o.sub);
+  if (st_.mode == Mode::Cube) {
+    if (k == OrbKind::Blue || k == OrbKind::Green) st_.flip = !st_.flip;
+    const float rel = cubeOrbUS(k, st_.tier, st_.mini);
+    st_.vy = (rel / phys::TPS) * st_.gdir();
+    st_.onGround = false;
+    return;
+  }
+  switch (k) {
     case OrbKind::Yellow: boost(phys::ORB_YELLOW); break;
     case OrbKind::Pink: boost(phys::ORB_PINK); break;
     case OrbKind::Red: boost(phys::ORB_RED); break;
-    case OrbKind::Blue:
-      st_.flip = !st_.flip;
-      boost(phys::ORB_BLUE, /*alongGravity=*/true);
-      break;
-    case OrbKind::Green:
-      st_.flip = !st_.flip;
-      boost(phys::ORB_GREEN);
-      break;
-    case OrbKind::Black: boost(phys::ORB_BLACK, /*alongGravity=*/true); break;
+    case OrbKind::Blue: st_.flip=!st_.flip; boost(phys::ORB_BLUE,true); break;
+    case OrbKind::Green: st_.flip=!st_.flip; boost(phys::ORB_GREEN); break;
+    case OrbKind::Black: boost(phys::ORB_BLACK,true); break;
     case OrbKind::Dash: boost(0.0f); break;
   }
 }
