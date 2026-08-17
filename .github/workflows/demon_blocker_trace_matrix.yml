@@ -1,0 +1,96 @@
+name: trace corrected demon blockers
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/demon_blocker_trace_matrix.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: toe2
+            gmd: 18
+            name: Theory of Everything 2
+            beam: 1536
+          - key: toe2
+            gmd: 18
+            name: Theory of Everything 2
+            beam: 8192
+          - key: toe2
+            gmd: 18
+            name: Theory of Everything 2
+            beam: 32768
+          - key: deadlocked
+            gmd: 20
+            name: Deadlocked
+            beam: 1536
+          - key: deadlocked
+            gmd: 20
+            name: Deadlocked
+            beam: 8192
+          - key: deadlocked
+            gmd: 20
+            name: Deadlocked
+            beam: 32768
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest >/dev/null
+          python3 tools/gmd_to_gdl.py levels/${{ matrix.gmd }}.gmd -o /tmp/level.gdl --name '${{ matrix.name }}' --hitbox-dump /tmp/hitboxes.csv
+          set +e
+          /tmp/build/gdlearn solve /tmp/level.gdl --beam ${{ matrix.beam }} --widen 0 --max-frames 43200 --stall 16000 --out /tmp/best.macro | tee /tmp/solve.log
+          set -e
+          /tmp/build/gdlearn trace /tmp/level.gdl --macro /tmp/best.macro --frames 5000 --from 0 > /tmp/trace.log
+          tail -n 45 /tmp/trace.log
+
+      - name: Resolve death UID and neighborhood
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+
+          solve=Path('/tmp/solve.log').read_text()
+          m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?frames\s+(\d+)',solve)
+          print('SOLVE_RESULT',m[-1] if m else None)
+
+          rows=[]
+          for line in Path('/tmp/trace.log').read_text().splitlines():
+              # frame hold x y vy ground dead mode flip pad orb contact deathuid
+              mm=re.match(r'\s*(\d+)\s+(HOLD|\.\.\.\.)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)',line)
+              if mm:
+                  rows.append({
+                    'frame':int(mm.group(1)), 'xbl':float(mm.group(3)), 'ybl':float(mm.group(4)),
+                    'vy':float(mm.group(5)), 'ground':int(mm.group(6)), 'dead':int(mm.group(7)),
+                    'mode':int(mm.group(8)), 'flip':int(mm.group(9)), 'pad':int(mm.group(10)),
+                    'orb':int(mm.group(11)), 'contact':int(mm.group(12)), 'deathuid':int(mm.group(13))})
+          if not rows: raise SystemExit('trace parse failed')
+          dead=next((r for r in rows if r['dead']), rows[-1])
+          print('DEATH_STATE',dead)
+
+          obj_lines=[ln for ln in Path('/tmp/level.gdl').read_text().splitlines() if ln.startswith('o ')]
+          uid=dead['deathuid']
+          if 0 <= uid < len(obj_lines):
+              print('DEATH_OBJECT_UID',uid,obj_lines[uid])
+          else:
+              print('DEATH_OBJECT_UID',uid,'<world boundary or uninstrumented>')
+
+          x=dead['xbl']*30.0
+          print('NEARBY_OBJECTS')
+          for i,ln in enumerate(obj_lines):
+              p=ln.split()
+              ox=float(p[3])
+              if abs(ox-x) <= 120.0:
+                  print(i,ln)
