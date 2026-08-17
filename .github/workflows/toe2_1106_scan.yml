@@ -1,0 +1,25 @@
+name: toe2 tick1106 raw scan
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/toe2_1106_scan.yml]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: python
+        run: |
+          import sys
+          sys.path.insert(0,'tools')
+          import gmd_to_gdl as g
+          raw=g.try_decompress(open('levels/18.gmd','rb').read()).decode('utf-8','ignore')
+          rows=[]
+          for seg in raw.split(';')[1:]:
+            if ',' not in seg: continue
+            p=g.parse_props(seg); x=g._f(p,2,0); y=g._f(p,3,0)
+            if abs(x-1437.16)>90 or abs(y-275.89)>140: continue
+            oid=g._i(p,1,0); obj=g.classify(p)
+            rows.append((x,y,oid,g._f(p,6,0),g._i(p,4,0),g._i(p,5,0),g._f(p,32,1),
+                         None if obj is None else (obj.kind,obj.sub,obj.hw,obj.hh)))
+          for r in sorted(rows): print(r)
