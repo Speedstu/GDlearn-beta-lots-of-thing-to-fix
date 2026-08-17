@@ -1,0 +1,45 @@
+name: apply exact cube effects
+on: {push: {branches: [agent/gdlearn2-physics-v6], paths: [.github/workflows/apply_effects_v6.yml]}}
+permissions: {contents: write}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/apply_effects_v6.py
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null; cmake --build build -j"$(nproc)" >/dev/null; ./build/gdlearn selftest >/dev/null
+          cat >/tmp/e.gdl <<'EOF'
+          # gdlearn level v1
+          name effect_test
+          floor 0
+          roof 0
+          length 1000
+          o orb 0 1.3 15 18 18 36
+          EOF
+          cat >/tmp/e.macro <<'EOF'
+          # gdlearn macro v2 native-240-tps
+          level effect_test
+          fps 240
+          progress 0
+          frames 1
+          r 1 1
+          EOF
+          ./build/gdlearn trace /tmp/e.gdl --macro /tmp/e.macro --frames 1 | tee /tmp/tr
+          python3 - <<'PY'
+          r=[l.split() for l in open('/tmp/tr') if l.split() and l.split()[0].isdigit()][0]
+          print('YELLOW_ORB_TEST',r)
+          if int(r[10]) < 0: raise SystemExit('orb not triggered')
+          if abs(float(r[4])-2.4669)>.015: raise SystemExit('yellow orb velocity mismatch')
+          PY
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.cpp
+          git rm tools/apply_effects_v6.py .github/workflows/apply_effects_v6.yml
+          git commit -m 'match GD cube pad and orb velocity tables'
+          git push
