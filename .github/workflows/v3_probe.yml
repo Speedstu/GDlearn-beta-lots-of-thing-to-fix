@@ -1,0 +1,30 @@
+name: v3 probe
+on: {push: {branches: [agent/gdlearn2-candidate-v3], paths: [.github/workflows/v3_probe.yml]}}
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/search/beam.cpp');s=p.read_text()
+          s=s.replace('    seen.reserve(cur.size() * 4);\n','    seen.reserve(cur.size() * 4);\n    std::unordered_map<int,int> dc;\n',1)
+          s=s.replace('        if (ns.dead) continue;\n','        if (ns.dead) { ++dc[sim.deathUid()]; continue; }\n',1)
+          old='    if (cands.empty()) break;\n'
+          new='''    if (cands.empty()) {\n      std::vector<std::pair<int,int>> ds(dc.begin(),dc.end());\n      std::sort(ds.begin(),ds.end(),[](auto&a,auto&b){return a.second>b.second;});\n      std::printf("ALLDEAD tick=%d progress=%.3f states=%zu\\n",frame,record*100.0f,cur.size());\n      const auto& os=level.objects();\n      for(size_t k=0;k<ds.size()&&k<8;++k){int u=ds[k].first;if(u>=0&&u<(int)os.size()){auto&o=os[(size_t)u];std::printf("D uid=%d id=%d kind=%d x=%.2f y=%.2f hw=%.2f hh=%.2f n=%d\\n",u,(int)o.id,(int)o.kind,o.x,o.y,o.hw,o.hh,ds[k].second);}else std::printf("D uid=%d nonobj n=%d\\n",u,ds[k].second);}\n      break;\n    }\n'''
+          if old not in s: raise SystemExit('anchor')
+          p.write_text(s.replace(old,new,1))
+      - shell: bash
+        run: |
+          set -e
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null && cmake --build build -j"$(nproc)" >/dev/null
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          ./build/gdlearn solve /tmp/l/c.gdl --beam 24576 --widen 0 --max-frames 12000 --stall 6000 --out /tmp/c.macro
+          ./build/gdlearn solve /tmp/l/d.gdl --beam 24576 --widen 0 --max-frames 12000 --stall 6000 --out /tmp/d.macro
+          ./build/gdlearn solve /tmp/l/t.gdl --beam 24576 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/t.macro
