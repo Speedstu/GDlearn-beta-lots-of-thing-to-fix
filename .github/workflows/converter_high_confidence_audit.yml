@@ -1,0 +1,102 @@
+name: converter high confidence audit
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/converter_high_confidence_audit.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - current
+          - no_721_722
+          - plus_bush_deco
+          - plus_1_6_cleanup
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch converter variant
+        shell: python
+        env:
+          V: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v=os.environ['V']
+          p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+          if v=='current':
+              print(v); raise SystemExit(0)
+
+          # 721 = pit shine, 722 = d_block04 decorative piece: neither kills.
+          anchor='''ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,\n        1594: 6, 1704: 6, 1751: 6}\n'''
+          if anchor not in s: raise SystemExit('ORBS anchor missing')
+          s=s.replace(anchor, anchor + '\nHAZARD_IDS.difference_update({721, 722})\n', 1)
+
+          if v in ('plus_bush_deco','plus_1_6_cleanup'):
+              # 123..128 are d_thorn bush decorations, not platforms.
+              s=s.replace('''    *range(118, 130),\n''','''    118, 120, 121, 122,\n''',1)
+
+          if v=='plus_1_6_cleanup':
+              # 185 is a blade_b hazard. 190 is d_art decoration. 191 is the
+              # old black fake spike (non-lethal decoration). 192 is a block.
+              s=s.replace('''    *range(185, 193),\n''','''    192,\n''',1)
+              # 183-185 are blade_b saw/blade hazards. Keep 186-188 out of the
+              # permanent hypothesis for now: their legacy mapping is audited
+              # separately rather than guessed here.
+              insert='''HAZARD_IDS.update({183, 184, 185})\n'''
+              s=s.replace('HAZARD_IDS.difference_update({721, 722})\n',
+                          'HAZARD_IDS.difference_update({721, 722})\n'+insert,1)
+          p.write_text(s)
+          print(v)
+
+      - name: Count suspicious raw IDs
+        shell: python
+        run: |
+          from collections import Counter
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,'tools')
+          import gmd_to_gdl as cv
+          suspect=set(range(118,130))|set(range(183,193))|{721,722}
+          for n in (14,18,20):
+              dec=cv.try_decompress(Path(f'levels/{n}.gmd').read_bytes())
+              c=Counter()
+              for seg in dec.decode('utf-8','ignore').split(';')[1:]:
+                  if ',' not in seg: continue
+                  p=cv.parse_props(seg); oid=cv._i(p,1,0)
+                  if oid in suspect: c[oid]+=1
+              print('COUNTS',n,dict(sorted(c.items())))
+
+      - name: Build selftest and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          /tmp/build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 256 --widen 0 --max-frames 43200 --stall 6000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 16000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 16000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def p(k):
+              x=Path('/tmp/log/'+k+'.log').read_text()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',x)
+              return float(m[-1]) if m else -1
+          print('RESULT', {'clubstep':p('c'),'toe2':p('t'),'deadlocked':p('d')})
+          PY
