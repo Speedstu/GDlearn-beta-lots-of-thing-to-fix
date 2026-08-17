@@ -28,6 +28,7 @@
 #include "nn/net.hpp"
 #include "rl/curriculum.hpp"
 #include "rl/ppo.hpp"
+#include "rl/policy_runner.hpp"
 #include "search/beam.hpp"
 
 namespace fs = std::filesystem;
@@ -303,7 +304,8 @@ int cmdGen(const Args& a) {
 
 int cmdSolve(const Args& a) {
   if (a.pos.empty()) {
-    std::printf("usage: gdlearn solve <level.gdl> [--beam N] [--out macro]\n");
+    std::printf("usage: gdlearn solve <level.gdl> [--beam N] [--policy run-dir] "
+                "[--prior-weight X] [--out macro]\n");
     return 2;
   }
   Level lv = Level::loadGdl(a.pos[0]);
@@ -315,6 +317,23 @@ int cmdSolve(const Args& a) {
   o.maxFrames = a.num("max-frames", phys::ticks(180.0f));
   o.stallFrames = a.num("stall", phys::ticks(8.0f));
   o.verbose = true;
+
+  PolicyRunner guide;
+  if (a.has("policy")) {
+    std::string err;
+    const std::string dir = a.str("policy");
+    if (!guide.load(dir, &err)) {
+      std::printf("cannot load policy prior from %s: %s\n", dir.c_str(), err.c_str());
+      return 2;
+    }
+    o.priorWeight = a.real("prior-weight", 8.0f);
+    o.priorBatch = [&guide, &lv](const std::vector<State>& states,
+                                 std::vector<float>* pHold) {
+      guide.probabilities(lv, states, pHold);
+    };
+    std::printf("guided by %s (%s), prior weight %.2f\n", dir.c_str(),
+                guide.schemaMagic().c_str(), o.priorWeight);
+  }
 
   const auto t0 = std::chrono::steady_clock::now();
   SolveResult r = beamSolve(lv, o);
@@ -452,29 +471,30 @@ int cmdEval(const Args& a) {
     std::printf("usage: gdlearn eval <run-dir> <level.gdl> [--out macro]\n");
     return 2;
   }
-  std::vector<Level> one{Level::loadGdl(a.pos[1])};
-  PpoConfig cfg;
-  cfg.numEnvs = 1;
-  cfg.stepsPerEnv = 1;
-  const int h = a.num("hidden", 256);
-  cfg.hidden = {h, h};
-  Ppo ppo(&one, cfg);
-  if (!ppo.loadCheckpoint(a.pos[0])) {
-    std::printf("cannot load checkpoint from %s\n", a.pos[0].c_str());
+  Level lv = Level::loadGdl(a.pos[1]);
+  PolicyRunner policy;
+  std::string err;
+  if (!policy.load(a.pos[0], &err)) {
+    std::printf("cannot load checkpoint from %s: %s\n", a.pos[0].c_str(),
+                err.c_str());
     return 1;
   }
-  Ppo::Rollout r = ppo.evaluate(one[0], a.num("max-frames", phys::ticks(180.0f)),
-                                a.has("stochastic"));
-  std::printf("%s: %.2f%%%s\n", one[0].name.c_str(), r.progress * 100.0f,
-              r.won ? "  COMPLETE" : "");
+  PolicyRollout r = policy.evaluate(
+      lv, a.num("max-frames", phys::ticks(180.0f)));
+  std::printf("%s: %.2f%%%s  schema=%s\n", lv.name.c_str(),
+              r.progress * 100.0f, r.won ? "  COMPLETE" : "",
+              policy.schemaMagic().c_str());
   Macro m;
-  m.level = one[0].name;
+  m.level = lv.name;
   m.progress = r.progress;
   m.holds = r.holds;
   const std::string out = a.str("out", a.pos[1] + ".policy.macro");
-  m.save(out);
+  if (!m.save(out)) {
+    std::printf("cannot save macro -> %s\n", out.c_str());
+    return 1;
+  }
   std::printf("macro -> %s\n", out.c_str());
-  return 0;
+  return r.won ? 0 : 3;
 }
 
 // ---------------------------------------------------------------- distill ----
@@ -793,8 +813,12 @@ int cmdDistill(const Args& a) {
       std::printf("    (no rescue found this round; keeping existing data)\n");
   }
 
-  net.save(out + "/policy.bin");
-  norm.save(out + "/obs_norm.bin");
+  if (!net.save(out + "/policy.bin") ||
+      !norm.save(out + "/obs_norm.bin") ||
+      !writePolicySchema(out, "gdlearn_imitation_v2", D)) {
+    std::printf("failed to save native distill checkpoint -> %s\n", out.c_str());
+    return 1;
+  }
   Macro m;
   m.level = lv.name;
   m.progress = bestProgress;
