@@ -12,6 +12,8 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "env/obs.hpp"
@@ -103,6 +105,23 @@ std::vector<uint8_t> minimizeMacro(const Level& level,
 
 std::vector<RatedLevel> rateLibrary(const CurriculumConfig& cfg) {
   std::vector<std::string> paths = collectLevelPaths(cfg.levelDirs);
+
+  // Macro cache keys are stems for backwards compatibility. Two distinct
+  // files named e.g. easy/1.gdl and demon/1.gdl must never share an oracle.
+  // Fail closed instead of training on a replay that belongs to another level.
+  {
+    std::unordered_map<std::string, std::string> seen;
+    for (const std::string& path : paths) {
+      const std::string stem = stemOf(path);
+      auto [it, inserted] = seen.emplace(stem, path);
+      if (!inserted && it->second != path) {
+        std::printf("ERROR: duplicate level stem '%s':\n  %s\n  %s\n"
+                    "Use unique filenames so macro/checkpoint caches cannot collide.\n",
+                    stem.c_str(), it->second.c_str(), path.c_str());
+        return {};
+      }
+    }
+  }
 
   // Procedural levels widen the bottom of the ramp so the policy has something
   // it can actually clear before meeting a real level.
@@ -317,12 +336,72 @@ class Trainer {
     norm_.init(D_);
   }
 
-  bool loadFrom(const std::string& dir) {
+  bool loadModel(const std::string& dir) {
+    std::ifstream meta(dir + "/schema.txt");
+    if (!meta) return false;
+    std::string magic;
+    std::getline(meta, magic);
+    if (magic != "gdlearn_imitation_v2") return false;
+    int tps = -1, dim = -1;
+    std::string key;
+    while (meta >> key) {
+      if (key == "tps") meta >> tps;
+      else if (key == "obs_dim") meta >> dim;
+      else { std::string ignored; std::getline(meta, ignored); }
+    }
+    if (tps != phys::TPS || dim != D_) return false;
     return net_.load(dir + "/policy.bin") && norm_.load(dir + "/obs_norm.bin");
   }
-  void saveTo(const std::string& dir) const {
+
+  void saveModel(const std::string& dir) const {
+    fs::create_directories(dir);
     net_.save(dir + "/policy.bin");
     norm_.save(dir + "/obs_norm.bin");
+    std::ofstream meta(dir + "/schema.txt", std::ios::trunc);
+    meta << "gdlearn_imitation_v2\n"
+         << "tps " << phys::TPS << "\n"
+         << "obs_dim " << D_ << "\n";
+  }
+
+  bool loadFrom(const std::string& dir) {
+    if (!loadModel(dir)) return false;
+    std::ifstream in(dir + "/dagger_dataset.bin", std::ios::binary);
+    if (!in) return true;  // checkpoint is still valid; demonstrations rebuild
+    uint32_t magic = 0;
+    int32_t dim = 0;
+    uint64_t n = 0;
+    in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    in.read(reinterpret_cast<char*>(&dim), sizeof(dim));
+    in.read(reinterpret_cast<char*>(&n), sizeof(n));
+    const uint64_t hardCap = cfg_.maxSamples > 0
+                                 ? static_cast<uint64_t>(cfg_.maxSamples)
+                                 : 2'000'000ull;
+    if (!in || magic != 0x47444432u || dim != D_ || n > hardCap) return false;
+    X_.resize(static_cast<size_t>(n) * static_cast<size_t>(D_));
+    Y_.resize(static_cast<size_t>(n));
+    in.read(reinterpret_cast<char*>(X_.data()),
+            static_cast<std::streamsize>(X_.size() * sizeof(float)));
+    in.read(reinterpret_cast<char*>(Y_.data()),
+            static_cast<std::streamsize>(Y_.size() * sizeof(uint8_t)));
+    if (!in) { X_.clear(); Y_.clear(); return false; }
+    return true;
+  }
+
+  void saveTo(const std::string& dir) const {
+    saveModel(dir);
+    std::ofstream out(dir + "/dagger_dataset.bin",
+                      std::ios::binary | std::ios::trunc);
+    if (!out) return;
+    const uint32_t magic = 0x47444432u;  // GDD2
+    const int32_t dim = D_;
+    const uint64_t n = static_cast<uint64_t>(Y_.size());
+    out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+    out.write(reinterpret_cast<const char*>(&dim), sizeof(dim));
+    out.write(reinterpret_cast<const char*>(&n), sizeof(n));
+    out.write(reinterpret_cast<const char*>(X_.data()),
+              static_cast<std::streamsize>(X_.size() * sizeof(float)));
+    out.write(reinterpret_cast<const char*>(Y_.data()),
+              static_cast<std::streamsize>(Y_.size() * sizeof(uint8_t)));
   }
 
   int samples() const { return static_cast<int>(Y_.size()); }
@@ -541,7 +620,10 @@ int runCurriculum(const CurriculumConfig& cfg) {
 
   Trainer trainer(cfg, obsDim());
   if (cfg.resume && trainer.loadFrom(cfg.outDir))
-    std::printf("resumed policy from %s\n", cfg.outDir.c_str());
+    std::printf("resumed native-240 policy + %d DAgger samples from %s\n",
+                trainer.samples(), cfg.outDir.c_str());
+  else if (cfg.resume)
+    std::printf("resume requested but no compatible 240-TPS checkpoint found; starting clean\n");
 
   std::ofstream log(cfg.outDir + "/curriculum_log.csv");
   log << "tier,round,active_levels,samples,loss,fit,mean_progress,cleared\n";
@@ -549,6 +631,19 @@ int runCurriculum(const CurriculumConfig& cfg) {
   const int tiers = std::max(1, cfg.tiers);
   const int n = static_cast<int>(useable.size());
   int active = 0;   // number of levels unlocked so far
+
+  auto scorePolicy = [&](int count) {
+    double sum = 0.0;
+    int wins = 0;
+    for (int i = 0; i < count; ++i) {
+      const State end = trainer.rollout(levels[static_cast<size_t>(i)], nullptr, nullptr);
+      const float prog = end.won ? 1.0f
+          : std::min(1.0f, end.x / std::max(1.0f, levels[static_cast<size_t>(i)].length));
+      sum += prog;
+      wins += end.won ? 1 : 0;
+    }
+    return std::pair<int, double>{wins, sum / std::max(1, count)};
+  };
 
   for (int tier = 0; tier < tiers; ++tier) {
     const int upTo = std::min(n, static_cast<int>(std::llround(
@@ -566,6 +661,12 @@ int runCurriculum(const CurriculumConfig& cfg) {
     std::printf("\n=== tier %d/%d: %d level(s) unlocked, hardest so far '%s' ===\n",
                 tier + 1, tiers, active,
                 useable[static_cast<size_t>(active - 1)].name.c_str());
+
+    const std::string guardDir = cfg.outDir + "/.champion_guard";
+    trainer.saveModel(guardDir);
+    auto [bestCleared, bestMean] = scorePolicy(active);
+    std::printf("  protected baseline: mean %.2f%% cleared %d/%d\n",
+                bestMean * 100.0, bestCleared, active);
 
     for (int round = 0; round < cfg.roundsPerTier; ++round) {
       Trainer::FitStats fit = trainer.train(cfg.epochs);
@@ -602,6 +703,21 @@ int runCurriculum(const CurriculumConfig& cfg) {
           << cleared << '\n';
       log.flush();
 
+      const bool regressed = cleared < bestCleared ||
+          (cleared == bestCleared && meanProg + 1e-9 < bestMean);
+      if (regressed) {
+        std::printf("    regression vs protected champion (%.2f%%/%d -> %.2f%%/%d); restoring\n",
+                    bestMean * 100.0, bestCleared, meanProg * 100.0, cleared);
+        if (!trainer.loadModel(guardDir))
+          throw std::runtime_error("failed to restore protected curriculum champion");
+        continue;
+      }
+      if (cleared > bestCleared || meanProg > bestMean + 1e-9) {
+        bestCleared = cleared;
+        bestMean = meanProg;
+        trainer.saveModel(guardDir);
+      }
+
       if (cleared >= static_cast<int>(std::ceil(cfg.promote * active))) {
         std::printf("  promotion threshold reached, unlocking the next tier\n");
         break;
@@ -612,7 +728,8 @@ int runCurriculum(const CurriculumConfig& cfg) {
       const Level& lv = levels[static_cast<size_t>(worst)];
       const int have = static_cast<int>(worstTrace.size());
       bool rescued = false;
-      for (int back : {30, 90, 240, 600}) {
+      for (int back : {phys::ticks(0.5f), phys::ticks(1.5f),
+                       phys::ticks(4.0f), phys::ticks(10.0f)}) {
         const int at = have - back;
         if (at <= 0) continue;
         SolveOptions o;
@@ -638,7 +755,12 @@ int runCurriculum(const CurriculumConfig& cfg) {
                   worstProg * 100.0f);
     }
 
+    // Always leave the best policy seen in this tier, never the last update.
+    if (!trainer.loadModel(guardDir))
+      throw std::runtime_error("failed to restore final protected tier champion");
     trainer.saveTo(cfg.outDir);
+    std::error_code guardEc;
+    fs::remove_all(guardDir, guardEc);
   }
 
   // ---- final report ----

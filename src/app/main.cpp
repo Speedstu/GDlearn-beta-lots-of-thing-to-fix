@@ -755,7 +755,7 @@ int cmdDistill(const Args& a) {
     // ---- DAgger: ask the oracle to rescue the states we actually visit ----
     const int have = static_cast<int>(trace.size());
     int added = 0;
-    for (int back : {30, 90, 200, 420}) {
+    for (int back : {phys::ticks(0.5f), phys::ticks(1.5f), phys::ticks(3.333333f), phys::ticks(7.0f)}) {
       const int at = have - back;
       if (at <= 0) continue;
       SolveOptions o;
@@ -774,8 +774,8 @@ int cmdDistill(const Args& a) {
     }
     // A little extra coverage from random points of the visited trajectory,
     // so the policy does not overfit the single oracle line.
-    if (have > 120) {
-      const int at = static_cast<int>(nextRand() % static_cast<uint32_t>(have - 60));
+    if (have > phys::ticks(2.0f)) {
+      const int at = static_cast<int>(nextRand() % static_cast<uint32_t>(have - phys::ticks(1.0f)));
       SolveOptions o;
       o.beamWidth = std::max(600, beam / 4);
       o.maxFrames = maxFrames;
@@ -867,7 +867,7 @@ int cmdReplay(const Args& a) {
   }
   VerifyResult v = verifyMacro(lv, m.holds);
   std::printf("%s: %.2f%% over %d frames (%.1fs) %s\n", lv.name.c_str(),
-              v.progress * 100.0f, v.frames, v.frames / 60.0f,
+              v.progress * 100.0f, v.frames, v.frames / static_cast<float>(phys::TPS),
               v.solved ? "COMPLETE" : "");
   return v.solved ? 0 : 1;
 }
