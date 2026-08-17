@@ -35,27 +35,17 @@ jobs:
           effects='''  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind == Kind::Pad) {\n      if (o.uid != st_.lastPadUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyPad(o);\n    } else if (o.kind == Kind::Orb) {\n      if (st_.holding && st_.holdFrames == 1 && o.uid != st_.lastOrbUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyOrb(o);\n    }\n  }\n'''
           if hazard not in s or effects not in s:
               raise SystemExit('expected collision phases not found')
-          s=s.replace(hazard,'',1)
-          s=s.replace(effects,'',1)
-          hazard_last='''\n  // Hazards are resolved last, after effects and block corrections.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n'''
-          if os.environ['MODE']=='hazards_last':
-              # Preserve current effects-after-blocks behaviour; move only hazards.
-              anchor='''  if (!landed && st_.onGround) {\n'''
-              pos=s.find(anchor)
-              if pos < 0: raise SystemExit('post-solid anchor missing')
-              # Insert effects+hazards immediately before end of resolveWorld, after ledge check.
-              close='''  }\n}\n\nvoid Sim::applyPad'''
-              if close not in s: raise SystemExit('resolveWorld close missing')
-              s=s.replace(close,'''  }\n\n'''+effects+hazard_last+'''}\n\nvoid Sim::applyPad''',1)
-          else:
-              # Reference ordering: effects are ordinary interactions and run before blocks;
-              # hazards are deferred until after block collision resolution.
+          s=s.replace(hazard,'',1).replace(effects,'',1)
+          hazard_last='''\n  // Hazards are resolved last, after effect and block corrections.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n'''
+          close='''\n}\n\nvoid Sim::applyPad'''
+          if close not in s: raise SystemExit('resolveWorld close missing')
+          if os.environ['MODE']=='reference_order':
               block_anchor='''  bool landed = false;\n'''
               if block_anchor not in s: raise SystemExit('block anchor missing')
               s=s.replace(block_anchor,effects+'\n'+block_anchor,1)
-              close='''  }\n}\n\nvoid Sim::applyPad'''
-              if close not in s: raise SystemExit('resolveWorld close missing')
-              s=s.replace(close,'''  }\n'''+hazard_last+'''}\n\nvoid Sim::applyPad''',1)
+              s=s.replace(close,hazard_last+close,1)
+          else:
+              s=s.replace(close,'\n'+effects+hazard_last+close,1)
           p.write_text(s)
       - name: Build and measure official demons
         shell: bash
