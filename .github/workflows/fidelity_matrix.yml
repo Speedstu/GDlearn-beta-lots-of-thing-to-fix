@@ -1,0 +1,63 @@
+name: classic fidelity component matrix
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/fidelity_matrix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  variant:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [maps, cube, inner, cube_inner, combo, combo_hazard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply one isolated fidelity variant
+        run: python3 tools/apply_fidelity_variant.py . "${{ matrix.variant }}"
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+      - name: Convert and solve official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/levels /tmp/logs
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/levels/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/levels/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/levels/d.gdl --name Deadlocked
+          for k in c t d; do
+            echo "$k objects=$(grep -c '^o ' /tmp/levels/$k.gdl)"
+            set +e
+            /tmp/build/gdlearn solve /tmp/levels/$k.gdl --beam 96 --widen 0 \
+              --max-frames 43200 --stall 1440 --out /tmp/$k.macro | tee /tmp/logs/$k.log
+            set -e
+          done
+          python3 - <<'PY'
+          import json,re,os
+          out={'variant':os.environ['VARIANT']}
+          for k in 'ctd':
+              txt=open(f'/tmp/logs/{k}.log').read()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',txt)
+              out[k]=float(m[-1]) if m else -1
+          print('FIDELITY_RESULT='+json.dumps(out,sort_keys=True))
+          open('/tmp/result.json','w').write(json.dumps(out,indent=2))
+          PY
+        env:
+          VARIANT: ${{ matrix.variant }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fidelity-${{ matrix.variant }}-${{ github.run_id }}
+          path: /tmp/result.json
+          retention-days: 2
