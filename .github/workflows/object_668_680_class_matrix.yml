@@ -1,0 +1,97 @@
+name: validate object classifications 668-680
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/object_668_680_class_matrix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, decor_668_672, plus_invis_triangles, plus_old_hazards]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch classification
+        shell: python
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v=os.environ['VARIANT']
+          p=Path('tools/gmd_to_gdl.py')
+          s=p.read_text()
+          if v=='baseline':
+              print('baseline')
+              raise SystemExit(0)
+
+          end="}\n\n# gdl PortalKind enum values"
+          if end not in s:
+              raise SystemExit('solid table end anchor missing')
+          patch="}\n# IDs 668-672 are legacy d_pixelArt01 decoration pieces, not 30x30 solids.\nSOLID_IDS.difference_update(range(668, 673))\n"
+          if v in ('plus_invis_triangles','plus_old_hazards'):
+              patch += "HAZARD_IDS.update({673, 674})\n"
+          if v=='plus_old_hazards':
+              patch += "HAZARD_IDS.update({675, 676, 677, 678, 679, 680})\n"
+          patch += "\n# gdl PortalKind enum values"
+          s=s.replace(end,patch,1)
+          p.write_text(s)
+          print('variant',v)
+
+      - name: Count affected raw objects
+        shell: python
+        run: |
+          from collections import Counter
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,'tools')
+          import gmd_to_gdl as cv
+          for n in (14,18,20):
+              raw=Path(f'levels/{n}.gmd').read_bytes()
+              dec=cv.try_decompress(raw)
+              if dec is None:
+                  raise SystemExit(f'cannot decode {n}')
+              c=Counter()
+              for seg in dec.decode('utf-8','ignore').split(';')[1:]:
+                  if ',' not in seg: continue
+                  pr=cv.parse_props(seg)
+                  oid=cv._i(pr,1,0)
+                  if 661 <= oid <= 680:
+                      c[oid]+=1
+              print('RAW_COUNTS',n,dict(sorted(c.items())))
+
+      - name: Build and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def pct(k):
+              t=Path('/tmp/log/'+k+'.log').read_text()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+              return float(m[-1]) if m else -1.0
+          print('RESULT',{'clubstep':pct('c'),'toe2':pct('t'),'deadlocked':pct('d')})
+          PY
