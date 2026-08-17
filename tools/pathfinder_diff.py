@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replay one gdlearn macro in gdlearn and Pathfinder and report first drift."""
 from __future__ import annotations
-import argparse, pathlib, re, shutil, subprocess, sys, textwrap
+import argparse, pathlib, shutil, subprocess, sys, textwrap
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 
@@ -21,7 +21,8 @@ def main():
     w=pathlib.Path(args.work); shutil.rmtree(w,ignore_errors=True); w.mkdir(parents=True)
     gdl=w/'level.gdl'; macro=w/'policy.macro'; gdtrace=w/'gd.trace'
     run([sys.executable,ROOT/'tools/gmd_to_gdl.py',args.gmd,'-o',gdl,'--name',args.name])
-    subprocess.run([args.bin,'solve',gdl,'--beam',args.beam,'--widen','0','--max-frames',args.frames,'--stall','2000','--out',macro],stdout=open(w/'solve.log','w'))
+    with open(w/'solve.log','w') as f:
+        subprocess.run(list(map(str,[args.bin,'solve',gdl,'--beam',args.beam,'--widen','0','--max-frames',args.frames,'--stall','2000','--out',macro])),stdout=f)
     with open(gdtrace,'w') as f: run([args.bin,'trace',gdl,'--macro',macro,'--frames',args.frames],stdout=f)
 
     sys.path.insert(0,str(ROOT/'tools')); import gmd_to_gdl as conv
