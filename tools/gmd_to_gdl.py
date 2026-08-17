@@ -27,13 +27,13 @@ from typing import Dict, Iterable, Optional, Tuple
 # the simulator.  These sets cover the official/classic object families and the
 # gameplay interactives used by the bundled levels.
 HAZARD_IDS = {
-    8, 9, 39, 61, 103, 135, 143, 205,
+    8, 9, 39, 61, 103, 135, 143, 183, 184, 185, 186, 187, 188, 205,
     363, 364, 365, 392, 393, 394, 446, 447,
     # Legacy 1.9 hazards.  673/674 are invisible triangles, 675-677 are the
     # old black cogwheels, and 678-680 are the light-blade family.  They were
     # previously swallowed by a broad SOLID_IDS range and became fake walls.
     667, 673, 674, 675, 676, 677, 678, 679, 680,
-    720, 721, 722, 768, 769, 989, 991,
+    720, 768, 769, 989, 991,
 }
 
 # Only IDs known to participate in collision are solids. Geometry Dash
@@ -48,8 +48,8 @@ SOLID_IDS = set(range(1, 8)) | {
     204, 205, 206, 207, 208, 209,
     *range(247, 260),
     71, 72, 73, 74, 75, 76, 77, 78,
-    *range(118, 130),
-    *range(185, 193),
+    118, 119, 120, 121, 122,
+    192,
     # 668-672 are legacy d_pixelArt01 decoration pieces and have no gameplay
     # collision.  673-680 are hazard families handled above.  Keeping these
     # holes explicit prevents hundreds of decorative objects from becoming
