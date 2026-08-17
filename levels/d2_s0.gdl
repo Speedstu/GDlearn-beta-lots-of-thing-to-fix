@@ -1,0 +1,23 @@
+# gdlearn level v1
+name proc_d2_s8
+floor 0
+roof 0
+length 2640
+o hazard 0 195 8 4 8 8
+o hazard 0 315 8 4 8 8
+o pad 0 465 5 15 5 0
+o solid 0 570 45 30 45 1
+o hazard 0 675 8 4 8 8
+o hazard 0 705 8 4 8 8
+o solid 0 855 15 45 15 1
+o hazard 0 1005 8 4 8 8
+o solid 0 1155 15 45 15 1
+o hazard 0 1305 8 4 8 8
+o solid 0 1515 15 45 15 1
+o hazard 0 1665 8 4 8 8
+o hazard 0 1695 8 4 8 8
+o hazard 0 1785 8 4 8 8
+o hazard 0 1935 8 4 8 8
+o hazard 0 1965 8 4 8 8
+o solid 0 2145 15 45 15 1
+o hazard 0 2295 8 4 8 8

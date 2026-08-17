@@ -1,0 +1,53 @@
+# gdlearn level v1
+name proc_d3_s1011
+floor 0
+roof 0
+length 4050
+o hazard 0 195 8 4 8 8
+o solid 0 330 15 30 15 1
+o solid 0 390 45 30 15 1
+o solid 0 450 75 30 15 1
+o solid 0 600 15 30 15 1
+o hazard 0 645 8 4 8 8
+o hazard 0 675 8 4 8 8
+o orb 0 660 75 18 18 0
+o solid 0 810 15 30 15 1
+o hazard 0 855 8 4 8 8
+o hazard 0 885 8 4 8 8
+o orb 0 870 75 18 18 0
+o solid 0 1050 15 30 15 1
+o hazard 0 1095 8 4 8 8
+o hazard 0 1125 8 4 8 8
+o orb 0 1110 75 18 18 0
+o hazard 0 1275 8 4 8 8
+o solid 0 1470 15 30 15 1
+o solid 0 1530 45 30 15 1
+o solid 0 1590 75 30 15 1
+o solid 0 1740 15 30 15 1
+o hazard 0 1785 8 4 8 8
+o hazard 0 1815 8 4 8 8
+o orb 0 1800 75 18 18 0
+o solid 0 1950 15 30 15 1
+o hazard 0 1995 8 4 8 8
+o hazard 0 2025 8 4 8 8
+o orb 0 2010 75 18 18 0
+o solid 0 2190 15 30 15 1
+o hazard 0 2235 8 4 8 8
+o hazard 0 2265 8 4 8 8
+o orb 0 2250 75 18 18 0
+o hazard 0 2385 8 4 8 8
+o solid 0 2550 15 30 15 1
+o solid 0 2610 45 30 15 1
+o solid 0 2670 75 30 15 1
+o hazard 0 2805 8 4 8 8
+o hazard 0 2835 8 4 8 8
+o solid 0 3000 15 30 15 1
+o hazard 0 3045 8 4 8 8
+o hazard 0 3075 8 4 8 8
+o orb 0 3060 75 18 18 0
+o solid 0 3240 15 30 15 1
+o solid 0 3300 45 30 15 1
+o solid 0 3360 75 30 15 1
+o solid 0 3525 30 45 30 1
+o hazard 0 3735 8 4 8 8
+o hazard 0 3765 8 4 8 8

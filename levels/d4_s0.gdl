@@ -1,0 +1,64 @@
+# gdlearn level v1
+name proc_d4_s3
+floor 0
+roof 0
+length 4800
+o solid 0 210 15 30 15 1
+o hazard 0 255 8 4 8 8
+o hazard 0 285 8 4 8 8
+o orb 0 270 75 18 18 0
+o solid 0 420 15 30 15 1
+o hazard 0 465 8 4 8 8
+o hazard 0 495 8 4 8 8
+o orb 0 480 75 18 18 0
+o solid 0 660 15 30 15 1
+o hazard 0 705 8 4 8 8
+o hazard 0 735 8 4 8 8
+o orb 0 720 75 18 18 0
+o solid 0 870 15 30 15 1
+o solid 0 930 45 30 15 1
+o solid 0 990 75 30 15 1
+o solid 0 1155 15 45 15 1
+o hazard 0 1230 8 4 8 8
+o hazard 0 1365 8 4 8 8
+o hazard 0 1395 8 4 8 8
+o solid 0 1560 15 30 15 1
+o hazard 0 1605 8 4 8 8
+o hazard 0 1635 8 4 8 8
+o orb 0 1620 75 18 18 0
+o solid 0 1785 30 45 30 1
+o hazard 0 1860 8 4 8 8
+o solid 0 1950 15 30 15 1
+o solid 0 2010 45 30 15 1
+o solid 0 2070 75 30 15 1
+o solid 0 2235 15 45 15 1
+o hazard 0 2310 8 4 8 8
+o solid 0 2430 15 30 15 1
+o solid 0 2490 45 30 15 1
+o solid 0 2550 75 30 15 1
+o solid 0 2715 15 45 15 1
+o hazard 0 2790 8 4 8 8
+o solid 0 2910 15 30 15 1
+o hazard 0 2955 8 4 8 8
+o hazard 0 2985 8 4 8 8
+o orb 0 2970 75 18 18 0
+o solid 0 3150 15 30 15 1
+o hazard 0 3195 8 4 8 8
+o hazard 0 3225 8 4 8 8
+o orb 0 3210 75 18 18 0
+o solid 0 3360 15 30 15 1
+o hazard 0 3405 8 4 8 8
+o hazard 0 3435 8 4 8 8
+o orb 0 3420 75 18 18 0
+o hazard 0 3585 8 4 8 8
+o solid 0 3750 15 30 15 1
+o solid 0 3810 45 30 15 1
+o solid 0 3870 75 30 15 1
+o solid 0 4020 15 30 15 1
+o hazard 0 4065 8 4 8 8
+o hazard 0 4095 8 4 8 8
+o orb 0 4080 75 18 18 0
+o pad 0 4215 5 15 5 0
+o solid 0 4320 45 30 45 1
+o pad 0 4425 5 15 5 0
+o solid 0 4530 45 30 45 1

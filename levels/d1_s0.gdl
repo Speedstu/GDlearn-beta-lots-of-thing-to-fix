@@ -1,0 +1,17 @@
+# gdlearn level v1
+name proc_d1_s14
+floor 0
+roof 0
+length 2430
+o hazard 0 195 8 4 8 8
+o solid 0 405 15 45 15 1
+o solid 0 645 15 45 15 1
+o hazard 0 795 8 4 8 8
+o hazard 0 945 8 4 8 8
+o solid 0 1125 15 45 15 1
+o hazard 0 1335 8 4 8 8
+o solid 0 1545 15 45 15 1
+o pad 0 1725 5 15 5 0
+o solid 0 1830 45 30 45 1
+o hazard 0 1935 8 4 8 8
+o hazard 0 2115 8 4 8 8

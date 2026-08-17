@@ -1,0 +1,62 @@
+# gdlearn level v1
+name proc_d5_s3
+floor 0
+roof 0
+length 5430
+o solid 0 210 15 30 15 1
+o hazard 0 255 8 4 8 8
+o hazard 0 285 8 4 8 8
+o orb 0 270 75 18 18 0
+o solid 0 420 15 30 15 1
+o solid 0 480 45 30 15 1
+o solid 0 540 75 30 15 1
+o solid 0 690 15 30 15 1
+o solid 0 750 45 30 15 1
+o solid 0 810 75 30 15 1
+o pad 0 945 5 15 5 0
+o solid 0 1050 45 30 45 1
+o solid 0 1200 15 30 15 1
+o solid 0 1260 45 30 15 1
+o solid 0 1320 75 30 15 1
+o solid 0 1485 30 45 30 1
+o hazard 0 1560 8 4 8 8
+o hazard 0 1665 8 4 8 8
+o hazard 0 1695 8 4 8 8
+o solid 0 1860 15 30 15 1
+o solid 0 1920 45 30 15 1
+o solid 0 1980 75 30 15 1
+o hazard 0 2115 8 4 8 8
+o hazard 0 2145 8 4 8 8
+o solid 0 2295 30 45 30 1
+o hazard 0 2370 8 4 8 8
+o hazard 0 2475 8 4 8 8
+o hazard 0 2505 8 4 8 8
+o hazard 0 2625 8 4 8 8
+o pad 0 2745 5 15 5 0
+o solid 0 2850 45 30 45 1
+o pad 0 2955 5 15 5 0
+o solid 0 3060 45 30 45 1
+o hazard 0 3195 8 4 8 8
+o hazard 0 3345 8 4 8 8
+o solid 0 3540 15 30 15 1
+o hazard 0 3585 8 4 8 8
+o hazard 0 3615 8 4 8 8
+o orb 0 3600 75 18 18 0
+o solid 0 3750 15 30 15 1
+o solid 0 3810 45 30 15 1
+o solid 0 3870 75 30 15 1
+o solid 0 4035 15 45 15 1
+o hazard 0 4110 8 4 8 8
+o solid 0 4260 15 30 15 1
+o solid 0 4320 45 30 15 1
+o solid 0 4380 75 30 15 1
+o solid 0 4530 15 30 15 1
+o hazard 0 4575 8 4 8 8
+o hazard 0 4605 8 4 8 8
+o orb 0 4590 75 18 18 0
+o solid 0 4740 15 30 15 1
+o solid 0 4800 45 30 15 1
+o solid 0 4860 75 30 15 1
+o solid 0 5010 15 30 15 1
+o solid 0 5070 45 30 15 1
+o solid 0 5130 75 30 15 1
