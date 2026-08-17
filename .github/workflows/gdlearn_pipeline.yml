@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - agent/gdlearn2-replace
+      - agent/gdlearn2-final
+      - agent/gdlearn2-obs-v2
       - main
       - master
   pull_request:
@@ -39,14 +41,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build/gdlearn train --levels levels/d0_s0.gdl --envs 2 --steps-per-env 4 \
-            --epochs 1 --minibatch 4 --total-steps 8 --save-every 0 --out /tmp/policy
+          ./build/gdlearn train --levels levels/d0_s0.gdl --envs 2 --steps-per-env 4 --epochs 1 --minibatch 4 --total-steps 8 --save-every 0 --out /tmp/policy
           grep '^gdlearn_policy_v2$' /tmp/policy/schema.txt
+          grep "^obs_dim $(./build/gdlearn selftest | sed -n 's/.*obs dim = //p' | tail -1)$" /tmp/policy/schema.txt
           set +e
           ./build/gdlearn eval /tmp/policy levels/d0_s0.gdl --max-frames 80 --out /tmp/eval.macro
           EVAL_RC=$?
-          ./build/gdlearn solve levels/d0_s0.gdl --policy /tmp/policy --prior-weight 4 \
-            --beam 16 --max-frames 80 --stall 40 --widen 0 --out /tmp/guided.macro
+          ./build/gdlearn solve levels/d0_s0.gdl --policy /tmp/policy --prior-weight 4 --beam 16 --max-frames 80 --stall 40 --widen 0 --out /tmp/guided.macro
           SOLVE_RC=$?
           set -e
           test "$EVAL_RC" -ne 1
@@ -66,10 +67,7 @@ jobs:
           frames 4
           r 0 4
           EOF
-          if ./build/gdlearn replay levels/d0_s0.gdl /tmp/legacy.macro; then
-            echo 'ERROR: legacy 60-TPS macro was accepted'
-            exit 1
-          fi
+          if ./build/gdlearn replay levels/d0_s0.gdl /tmp/legacy.macro; then exit 1; fi
       - name: Reject ambiguous macro-cache stems
         shell: bash
         run: |
@@ -77,16 +75,11 @@ jobs:
           mkdir -p /tmp/gda /tmp/gdb /tmp/gdmac
           cp levels/d0_s0.gdl /tmp/gda/same.gdl
           cp levels/d0_s0.gdl /tmp/gdb/same.gdl
-          if ./build/gdlearn curriculum --levels /tmp/gda,/tmp/gdb --rate-only --macros /tmp/gdmac --out /tmp/gddup; then
-            echo 'ERROR: duplicate stems were accepted'
-            exit 1
-          fi
+          if ./build/gdlearn curriculum --levels /tmp/gda,/tmp/gdb --rate-only --macros /tmp/gdmac --out /tmp/gddup; then exit 1; fi
       - name: Reject obvious legacy timing regressions
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -R --line-number -E '60 entries per second|one 60Hz gameplay|default 60-Hz|fps = 60|frames / 60\.0f' src tools || {
-            echo 'legacy timing assumption reintroduced'; exit 1;
-          }
-      - name: Short throughput benchmark
+          ! grep -R --line-number -E '60 entries per second|one 60Hz gameplay|default 60-Hz|fps = 60|frames / 60\.0f' src tools
+      - name: Throughput benchmark
         run: ./build/gdlearn bench --steps 1000000
