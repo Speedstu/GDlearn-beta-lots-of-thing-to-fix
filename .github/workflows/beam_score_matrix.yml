@@ -1,0 +1,67 @@
+name: beam score matrix
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/beam_score_matrix.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  score-ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, no_y, pure_x, flight_neutral]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch beam score
+        shell: python
+        env:
+          V: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v=os.environ['V']
+          if v=='baseline':
+              print(v); raise SystemExit(0)
+          p=Path('src/search/beam.cpp'); s=p.read_text()
+          old='''        float score = ns.x + 0.02f * (ns.y * ns.gdir()) +\n                      (ns.onGround ? 0.5f : 0.0f);\n'''
+          repl={
+            'no_y':'''        float score = ns.x + (ns.onGround ? 0.5f : 0.0f);\n''',
+            'pure_x':'''        float score = ns.x;\n''',
+            'flight_neutral':'''        const bool flight = ns.mode == Mode::Ship || ns.mode == Mode::Ufo ||\n                            ns.mode == Mode::Wave || ns.mode == Mode::Swing;\n        float score = flight ? ns.x\n                             : ns.x + 0.02f * (ns.y * ns.gdir()) +\n                                   (ns.onGround ? 0.5f : 0.0f);\n''',
+          }[v]
+          if old not in s: raise SystemExit('beam score anchor missing')
+          p.write_text(s.replace(old,repl,1))
+          print(v)
+
+      - name: Build selftest and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          /tmp/build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 8192 --widen 0 --max-frames 43200 --stall 16000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 24000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 24000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def p(k):
+              x=Path('/tmp/log/'+k+'.log').read_text()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',x)
+              return float(m[-1]) if m else -1
+          print('RESULT',{'clubstep':p('c'),'toe2':p('t'),'deadlocked':p('d')})
+          PY
