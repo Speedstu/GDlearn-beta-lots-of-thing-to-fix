@@ -1,0 +1,53 @@
+name: ToE2 blue-pad trajectory
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/toe2_trajectory.yml
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add solve trajectory trace
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          anchor='''  if (!r.macro.save(out)) {\n    std::fprintf(stderr, "failed to write %s\\n", out.c_str());\n    return 1;\n  }\n'''
+          trace=r'''  {
+    Sim tr(&level);
+    int lastPad = tr.state().lastPadUid;
+    std::printf("TRACE_BEGIN\n");
+    for (size_t tf = 0; tf < r.macro.holds.size() && tr.alive(); ++tf) {
+      tr.step(r.macro.holds[tf] != 0);
+      const State& ts = tr.state();
+      if ((ts.x >= 330.0f && ts.x <= 530.0f && (tf % 4 == 0)) || ts.lastPadUid != lastPad) {
+        std::printf("TRACE tick=%zu x=%.3f y=%.3f vy=%.5f flip=%d ground=%d hold=%d pad=%d orb=%d dead=%d\n",
+                    tf, ts.x, ts.y, ts.vy, (int)ts.flip, (int)ts.onGround,
+                    (int)ts.holding, ts.lastPadUid, ts.lastOrbUid, (int)ts.dead);
+      }
+      lastPad = ts.lastPadUid;
+    }
+    std::printf("TRACE_END\n");
+  }
+'''
+          if anchor not in s: raise SystemExit('save anchor not found')
+          p.write_text(s.replace(anchor,trace+anchor,1))
+      - name: Build and trace ToE2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/t.gdl --name 'Theory of Everything 2'
+          set +e
+          /tmp/build/gdlearn solve /tmp/t.gdl --beam 1536 --widen 0 --max-frames 30000 --stall 6000 --out /tmp/t.macro
+          set -e
