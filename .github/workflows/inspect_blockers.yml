@@ -16,7 +16,18 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Deadlocked exact-hazard early blocker neighborhood
-        run: python3 tools/inspect_gmd_region.py levels/20.gmd --x 830 --radius 220
-      - name: Theory of Everything 2 early blocker neighborhood
-        run: python3 tools/inspect_gmd_region.py levels/18.gmd --x 466 --radius 220
+      - name: Exact ToE2 ID186 object
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/inspect_gmd_region.py levels/18.gmd --x 452.55 --radius 3
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0,'tools')
+          from gmd_to_gdl import try_decompress,parse_props,_i,_f
+          raw=open('levels/18.gmd','rb').read(); dec=try_decompress(raw)
+          for seg in dec.decode('utf-8','ignore').split(';')[1:]:
+              p=parse_props(seg)
+              if _i(p,1,0)==186 and abs(_f(p,2,0)-452.55)<3:
+                  print('RAW_ID186_PROPS',dict(sorted(p.items())))
+          PY
