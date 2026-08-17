@@ -1,0 +1,88 @@
+name: trace ToE2 phys-safe blocker
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/toe2_phys_safe_trace.yml
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enrich trace output
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          s=s.replace(
+            'frame  hold      x(bl)   y(bl)     vy  ground  dead  mode\\n',
+            'frame  hold      x(bl)   y(bl)     vy  ground  dead  mode flip pad orb\\n', 1)
+          old='''      std::printf("%5d  %s   %8.3f %7.3f %6.2f     %d     %d     %d\\n", f,\n                  hold ? "HOLD" : "....", s.x / phys::BLOCK,\n                  s.y / phys::BLOCK, s.vy, s.onGround ? 1 : 0,\n                  s.dead ? 1 : 0, static_cast<int>(s.mode));\n'''
+          new='''      std::printf("%5d  %s   %8.3f %7.3f %6.2f     %d     %d     %d    %d %d %d\\n", f,\n                  hold ? "HOLD" : "....", s.x / phys::BLOCK,\n                  s.y / phys::BLOCK, s.vy, s.onGround ? 1 : 0,\n                  s.dead ? 1 : 0, static_cast<int>(s.mode),\n                  s.flip ? 1 : 0, s.lastPadUid, s.lastOrbUid);\n'''
+          if old not in s: raise SystemExit('trace printf anchor missing')
+          p.write_text(s.replace(old,new,1))
+
+      - name: Build solve and trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/toe2.gdl --name 'Theory of Everything 2' --hitbox-dump /tmp/toe2.csv
+          set +e
+          /tmp/build/gdlearn solve /tmp/toe2.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/toe2.macro | tee /tmp/solve.log
+          set -e
+          /tmp/build/gdlearn trace /tmp/toe2.gdl --macro /tmp/toe2.macro --frames 570 --from 430 | tee /tmp/trace.log
+
+      - name: Diagnose death neighborhood
+        shell: python
+        run: |
+          import csv, re, sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools')
+          import gmd_to_gdl as cv
+
+          rows=[]
+          for line in Path('/tmp/trace.log').read_text().splitlines():
+              m=re.match(r'\s*(\d+)\s+(HOLD|\.\.\.\.)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)', line)
+              if m:
+                  rows.append({
+                    'frame':int(m.group(1)), 'xbl':float(m.group(3)), 'ybl':float(m.group(4)),
+                    'vy':float(m.group(5)), 'ground':int(m.group(6)), 'dead':int(m.group(7)),
+                    'mode':int(m.group(8)), 'flip':int(m.group(9)), 'pad':int(m.group(10)), 'orb':int(m.group(11))})
+          if not rows: raise SystemExit('no trace rows parsed')
+          dead=next((r for r in rows if r['dead']), rows[-1])
+          x=dead['xbl']*30.0
+          print('DEATH_STATE', dead, 'x_world', x)
+          print('TRACE_LAST_30')
+          for r in rows[max(0, rows.index(dead)-25):rows.index(dead)+2]: print(r)
+
+          print('CLASSIFIED_OBJECTS_WITHIN_120')
+          with open('/tmp/toe2.csv', newline='') as fh:
+              for r in csv.DictReader(fh):
+                  if abs(float(r['x'])-x) <= 120:
+                      print(r)
+
+          raw=Path('levels/18.gmd').read_bytes()
+          dec=cv.try_decompress(raw)
+          if dec is None: raise SystemExit('cannot decode raw gmd')
+          print('RAW_OBJECTS_WITHIN_120')
+          for seg in dec.decode('utf-8','ignore').split(';')[1:]:
+              if ',' not in seg: continue
+              p=cv.parse_props(seg)
+              ox=cv._f(p,2,0.0)
+              if abs(ox-x) <= 120:
+                  print({
+                    'id':cv._i(p,1,0),'x':ox,'y':cv._f(p,3,0.0),'rot':cv._f(p,6,0.0),
+                    'scale':cv._f(p,32,1.0),'sx':cv._f(p,128,cv._f(p,32,1.0)),
+                    'sy':cv._f(p,129,cv._f(p,32,1.0)),'no_touch':cv._i(p,121,0),
+                    'classified':cv.classify(p).kind if cv.classify(p) else None})
