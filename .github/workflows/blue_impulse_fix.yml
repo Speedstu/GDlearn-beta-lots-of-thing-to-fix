@@ -1,0 +1,76 @@
+name: blue impulse fidelity test
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-bluefix-eval
+    paths:
+      - .github/workflows/blue_impulse_fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch blue pad/orb direction and measured magnitudes
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/core/physics.hpp')
+          s=p.read_text()
+          s=s.replace('constexpr float PAD_BLUE = 12.00f * VEL_60_TO_TICK;', 'constexpr float PAD_BLUE = 345.6f / TPS;  // measured cube normal-size magnitude')
+          s=s.replace('constexpr float ORB_BLUE = 11.18f * VEL_60_TO_TICK;', 'constexpr float ORB_BLUE = 241.488f / TPS;  // measured cube 1x normal-size magnitude')
+          p.write_text(s)
+          p=Path('src/core/sim.cpp')
+          s=p.read_text()
+          s=s.replace('''    case PadKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::PAD_BLUE);\n      break;''','''    case PadKind::Blue:\n      st_.flip = !st_.flip;\n      // Blue pads launch along the NEW gravity direction after the flip.\n      boost(phys::PAD_BLUE, /*alongGravity=*/true);\n      break;''')
+          s=s.replace('''    case OrbKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::ORB_BLUE);\n      break;''','''    case OrbKind::Blue:\n      st_.flip = !st_.flip;\n      // Blue orbs use a negative internal velocity before the gravity flip in GD;\n      // with world-space vy that is an impulse along the NEW gravity direction.\n      boost(phys::ORB_BLUE, /*alongGravity=*/true);\n      break;''')
+          p.write_text(s)
+      - name: Build and selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+      - name: Official demon regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 2400 --out /tmp/$k.macro | tee /tmp/log/$k.log
+          done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 16000 --stall 4000 --out /tmp/t1536.macro | tee /tmp/log/t1536.log
+          set -e
+      - name: Gate and commit fix if better
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          def p(path):
+              t=open(path).read(); m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+              return float(m[-1]) if m else -1
+          c,t,d,tb = p('/tmp/log/c.log'),p('/tmp/log/t.log'),p('/tmp/log/d.log'),p('/tmp/log/t1536.log')
+          print('RESULT', {'clubstep':c,'toe2':t,'deadlocked':d,'toe2_b1536':tb})
+          if c < 5.75: raise SystemExit('Clubstep regression')
+          if d < 6.0: raise SystemExit('Deadlocked regression')
+          if max(t,tb) <= 1.61: raise SystemExit('ToE2 not improved')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/physics.hpp src/core/sim.cpp
+          git rm .github/workflows/blue_impulse_fix.yml
+          git commit -m 'fix blue pad and orb world-space impulse semantics'
+          git push
