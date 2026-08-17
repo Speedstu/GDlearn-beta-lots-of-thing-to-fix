@@ -761,7 +761,7 @@ int cmdDistill(const Args& a) {
       SolveOptions o;
       o.beamWidth = beam;
       o.maxFrames = maxFrames;
-      o.stallFrames = 60 * 10;
+      o.stallFrames = phys::ticks(10.0f);
       o.verbose = false;
       o.hasStart = true;
       o.start = trace[at];
@@ -779,7 +779,7 @@ int cmdDistill(const Args& a) {
       SolveOptions o;
       o.beamWidth = std::max(600, beam / 4);
       o.maxFrames = maxFrames;
-      o.stallFrames = 60 * 6;
+      o.stallFrames = phys::ticks(6.0f);
       o.verbose = false;
       o.hasStart = true;
       o.start = trace[at];

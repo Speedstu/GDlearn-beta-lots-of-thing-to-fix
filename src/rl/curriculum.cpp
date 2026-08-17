@@ -618,7 +618,7 @@ int runCurriculum(const CurriculumConfig& cfg) {
         SolveOptions o;
         o.beamWidth = cfg.rescueBeam;
         o.maxFrames = cfg.evalMaxFrames;
-        o.stallFrames = 60 * 10;
+        o.stallFrames = phys::ticks(10.0f);
         o.verbose = false;
         o.hasStart = true;
         o.start = worstTrace[static_cast<size_t>(at)];

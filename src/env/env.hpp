@@ -28,7 +28,7 @@ struct EnvConfig {
   float deathPenalty = 1.0f;
   float winBonus = 10.0f;
   float timePenalty = 0.0f;       // per frame, usually 0 (speed is forced)
-  int maxEpisodeFrames = 60 * 90;
+  int maxEpisodeFrames = phys::ticks(90.0f);
 
   // Go-Explore
   bool goExplore = true;
