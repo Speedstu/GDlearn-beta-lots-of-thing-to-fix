@@ -61,8 +61,7 @@ def main():
     for l in gdtrace.read_text().splitlines():
         p=l.split()
         if len(p)>=9 and p[0].isdigit():
-            # x,y,vy,mode,flip,ground,hold
-            gd[int(p[0])]=(float(p[2])*30,float(p[3])*30,float(p[4]),int(p[7]),int(p[8]),int(p[5]),int(p[1]))
+            gd[int(p[0])] = (float(p[2])*30,float(p[3])*30,float(p[4]),int(p[7]),int(p[8]),int(p[5]),1 if p[1]=='HOLD' else 0)
     ref={}
     for l in reftrace.read_text().splitlines():
         p=l.split()
