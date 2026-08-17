@@ -31,6 +31,8 @@ void Sim::reset() {
 
 bool Sim::step(bool hold) {
   if (!alive()) return false;
+  lastContactUid_ = -1;
+  deathUid_ = -1;
 
   const bool press = hold && !st_.holding;
   st_.holding = hold;
@@ -261,6 +263,8 @@ void Sim::resolveWorld(float prevY) {
     const Object& o = objs[idx[i]];
     if (o.kind != Kind::Hazard) continue;
     if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {
+      lastContactUid_ = o.uid;
+      deathUid_ = o.uid;
       st_.dead = true;
       return;
     }
@@ -273,6 +277,8 @@ void Sim::resolveWorld(float prevY) {
     if (!aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) continue;
 
     if (diesOnTouch(st_.mode)) {
+      lastContactUid_ = o.uid;
+      deathUid_ = o.uid;
       st_.dead = true;
       return;
     }
@@ -287,6 +293,7 @@ void Sim::resolveWorld(float prevY) {
       st_.vy = 0;
       st_.onGround = true;
       st_.jumpHold = 0;
+      lastContactUid_ = o.uid;
       landed = true;
     } else if (!falling && (prevHead - surfaceBottom) * g <= 1.0f) {
       // Head bump on the underside of a block. In GD only the TOP face of a
@@ -295,6 +302,8 @@ void Sim::resolveWorld(float prevY) {
       // even jump into blocks above its head with no penalty.
       // Flying modes are the exception: a ship slides along a ceiling.
       if (!isFlightMode(st_.mode)) {
+        lastContactUid_ = o.uid;
+        deathUid_ = o.uid;
         st_.dead = true;
         return;
       }
@@ -302,6 +311,8 @@ void Sim::resolveWorld(float prevY) {
       st_.vy = 0;
     } else if (aabb(st_.x, st_.y, bhw, bhh, o.x, o.y, o.hw, o.hh)) {
       // Ran into the wall for real: that is a death in GD, not a slide.
+      lastContactUid_ = o.uid;
+      deathUid_ = o.uid;
       st_.dead = true;
       return;
     } else {
@@ -316,6 +327,7 @@ void Sim::resolveWorld(float prevY) {
         if (st_.vy * g < 0) st_.vy = 0;
         st_.onGround = true;
         st_.jumpHold = 0;
+        lastContactUid_ = o.uid;
         landed = true;
       }
     }
@@ -344,6 +356,7 @@ void Sim::resolveWorld(float prevY) {
 }
 
 void Sim::applyPad(const Object& o) {
+  lastContactUid_ = o.uid;
   st_.lastPadUid = o.uid;
   switch (static_cast<PadKind>(o.sub)) {
     case PadKind::Yellow: boost(phys::PAD_YELLOW); break;
@@ -357,6 +370,7 @@ void Sim::applyPad(const Object& o) {
 }
 
 void Sim::applyOrb(const Object& o) {
+  lastContactUid_ = o.uid;
   st_.lastOrbUid = o.uid;
   switch (static_cast<OrbKind>(o.sub)) {
     case OrbKind::Yellow: boost(phys::ORB_YELLOW); break;
@@ -376,6 +390,7 @@ void Sim::applyOrb(const Object& o) {
 }
 
 void Sim::applyPortal(const Object& o) {
+  lastContactUid_ = o.uid;
   if (o.kind == Kind::Speed) {
     st_.tier = static_cast<uint8_t>(std::min<int>(o.sub, 4));
     st_.speed = phys::SPEEDS[st_.tier];

@@ -57,6 +57,8 @@ class Sim {
   void restore(const State& s) { st_ = s; }
   const State& state() const { return st_; }
   float ceiling() const { return lastCeiling_; }
+  int lastContactUid() const { return lastContactUid_; }
+  int deathUid() const { return deathUid_; }
   State& mutableState() { return st_; }
 
   // Advance exactly one native Geometry Dash physics tick (240 TPS).
@@ -87,6 +89,8 @@ class Sim {
   const Level* level_ = nullptr;
   State st_{};
   float lastCeiling_ = 0;
+  int lastContactUid_ = -1;
+  int deathUid_ = -1;
 };
 
 }  // namespace gd
