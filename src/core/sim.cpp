@@ -29,6 +29,16 @@ inline bool isFlightMode(Mode m) {
   return m == Mode::Ship || m == Mode::Ufo || m == Mode::Wave || m == Mode::Swing;
 }
 
+inline float roundWorldVy(float worldVy, bool flip) {
+  double rel = static_cast<double>(worldVy) * (flip ? -1.0 : 1.0) * phys::TPS;
+  const double sign = flip ? 1.0 : -1.0;
+  double n = rel / 54.0 * sign;
+  const double truncated = static_cast<int>(n);
+  if (n != truncated) n = std::round((n - truncated) * 1000.0) / 1000.0 + truncated;
+  rel = n * 54.0 * sign;
+  return static_cast<float>(rel * (flip ? -1.0 : 1.0) / phys::TPS);
+}
+
 }  // namespace
 
 void Sim::reset() {
@@ -49,9 +59,10 @@ bool Sim::step(bool hold) {
   st_.holdFrames = hold ? static_cast<uint16_t>(st_.holdFrames + 1) : 0;
 
   const float prevY = st_.y;
-  applyMotion(press, hold);
   st_.x += st_.speed * phys::DT;
+  st_.y += st_.vy;
   resolveWorld(prevY);
+  if (alive()) applyMotion(press, hold);
 
   // Cosmetic rotation, exposed to the policy because it correlates with the
   // "can I still land flat" feeling human players rely on.
@@ -78,15 +89,19 @@ void Sim::applyMotion(bool press, bool hold) {
 
   switch (st_.mode) {
     case Mode::Cube: {
-      // Real GD buffers the button: holding makes the cube jump on every
-      // ground contact, no release required. The old sim demanded a fresh
-      // press, which made whole classes of jumps unreachable.
-      if (hold && st_.onGround) {
-        st_.vy = phys::CUBE_JUMP * g;
-        st_.onGround = false;
+      const int tier = std::clamp<int>(st_.tier, 0, 4);
+      bool velocityOverride = false;
+      if (st_.onGround) {
+        if (hold) {
+          const float rel = phys::CUBE_JUMP_U_S[tier] * (st_.mini ? 0.8f : 1.0f);
+          st_.vy = (rel / phys::TPS) * g;
+          st_.onGround = false;
+          velocityOverride = !press;
+        } else { st_.vy = 0.0f; velocityOverride = true; }
       }
-      st_.vy -= phys::CUBE_GRAVITY * g;
-      clampFall(phys::CUBE_TERMINAL);
+      if (!velocityOverride) st_.vy -= (phys::CUBE_ACCEL_U_S2[tier] / (phys::TPS * phys::TPS)) * g;
+      if (st_.vy * g < -phys::CUBE_TERMINAL) st_.vy = -phys::CUBE_TERMINAL * g;
+      st_.vy = roundWorldVy(st_.vy, st_.flip);
       break;
     }
     case Mode::Ship: {
@@ -162,7 +177,6 @@ void Sim::applyMotion(bool press, bool hold) {
     default:
       break;
   }
-  st_.y += st_.vy;
 }
 
 // --------------------------------------------------------- world contact ----

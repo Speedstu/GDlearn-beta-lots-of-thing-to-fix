@@ -43,7 +43,9 @@ constexpr std::array<float, 5> SPEEDS = {
 // ------------------------------------------------------------------ cube ----
 constexpr float CUBE_GRAVITY = 0.958199f * ACCEL_60_TO_TICK2;
 constexpr float CUBE_JUMP = 11.180000f * VEL_60_TO_TICK;
-constexpr float CUBE_TERMINAL = 15.0f * VEL_60_TO_TICK;
+constexpr float CUBE_TERMINAL = 810.0f / TPS;
+constexpr std::array<float, 5> CUBE_ACCEL_U_S2 = {2747.52f,2794.1082f,2786.4f,2799.36f,2799.36f};
+constexpr std::array<float, 5> CUBE_JUMP_U_S = {573.481728f,603.7217172f,616.681728f,606.421728f,606.421728f};
 constexpr float CUBE_ROT_PER_FRAME = 6.0f * VEL_60_TO_TICK;  // deg / 240-Hz tick
 
 // ------------------------------------------------------------------ ship ----
