@@ -22,10 +22,10 @@ jobs:
           from pathlib import Path
           p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
           old='''    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
-          new='''    if oid in HAZARD_IDS:\n        # Pathfinder reverse-engineered object table: ID 991/1733 is the tiny\n        # black ground-spike hitbox, full size 2.40039063 x 3.20001221.\n        if oid == 991:\n            bhw, bhh = 2.40039063 * 0.5 * sx, 3.20001221 * 0.5 * sy\n        else:\n            bhw, bhh = 4.0 * sx, 8.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        # ID 468 is a 30 x 1.5 slab, not a 30 x 30 block.  The old generic\n        # square created the artificial wall visible at ToE2 ~70%.\n        if oid == 468:\n            bhw, bhh = 15.0 * sx, 0.75 * sy\n        else:\n            bhw, bhh = 15.0 * sx, 15.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
+          new='''    if oid in HAZARD_IDS:\n        if oid == 991:\n            bhw, bhh = 2.40039063 * 0.5 * sx, 3.20001221 * 0.5 * sy\n        else:\n            bhw, bhh = 4.0 * sx, 8.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        if oid == 468:\n            bhw, bhh = 15.0 * sx, 0.75 * sy\n        else:\n            bhw, bhh = 15.0 * sx, 15.0 * sy\n        hw, hh = _rotated_half_extents(bhw, bhh, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n'''
           if old not in s: raise SystemExit('classification anchor missing')
           p.write_text(s.replace(old,new,1))
-      - name: Build and sanity check converted sizes
+      - name: Build and validate converted sizes
         shell: bash
         run: |
           set -euo pipefail
@@ -34,10 +34,22 @@ jobs:
           ./build/gdlearn selftest
           python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/t.gdl --name 'Theory of Everything 2'
           python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/d.gdl --name Deadlocked
-          grep ' 468$' /tmp/t.gdl | head
-          grep ' 991$' /tmp/d.gdl | head
-          grep ' 468$' /tmp/t.gdl | awk '{if ($6 > 1.0) exit 1}'
-          grep ' 991$' /tmp/d.gdl | awk '{if ($6 > 2.0 || $7 > 2.0) exit 1}'
+          python3 - <<'PY'
+          def rows(path, oid):
+              out=[]
+              for line in open(path):
+                  p=line.split()
+                  if len(p)==8 and p[0]=='o' and int(p[7])==oid:
+                      out.append((float(p[5]),float(p[6])))
+              return out
+          r468=rows('/tmp/t.gdl',468); r991=rows('/tmp/d.gdl',991)
+          print('468 sample',r468[:10]); print('991 sample',r991[:10])
+          if not r468 or not r991: raise SystemExit('target IDs absent')
+          for hw,hh in r468:
+              if min(hw,hh)>0.76 or max(hw,hh)>15.01: raise SystemExit(f'bad 468 {hw},{hh}')
+          for hw,hh in r991:
+              if max(hw,hh)>1.61: raise SystemExit(f'bad 991 {hw},{hh}')
+          PY
       - name: Exact-search A/B gates
         shell: bash
         run: |
