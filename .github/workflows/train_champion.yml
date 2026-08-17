@@ -1,0 +1,175 @@
+name: gdlearn2 demon champion
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/train_champion.yml
+  workflow_dispatch:
+    inputs:
+      pack:
+        description: "Real Geometry Dash pack"
+        required: true
+        default: demons
+        type: choice
+        options:
+          - demons
+          - classics
+      cycles:
+        description: "Search -> DAgger -> PPO champion cycles"
+        required: true
+        default: "2"
+        type: string
+      beams:
+        description: "Exact-search beam ladder"
+        required: true
+        default: "96,384,1536"
+        type: string
+      ppo_steps:
+        description: "PPO finisher steps per cycle (0 disables)"
+        required: true
+        default: "1000000"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  champion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build native 240 TPS engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+          cmake --build build -j"$(nproc)"
+          ./build/gdlearn selftest
+
+      - name: Fetch real Geometry Dash levels
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/gd_real /tmp/gd_proc
+          mkdir -p /tmp/gd_real /tmp/gd_proc
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            python3 tools/fetch_gd_level.py --pack "${{ inputs.pack }}" --out /tmp/gd_real
+          else
+            # Bounded first run: two real demons, enough to validate the full
+            # public-server -> converter -> search -> train -> eval path now.
+            python3 tools/fetch_gd_level.py \
+              --name "The Nightmare" \
+              --name "Death Moon" \
+              --out /tmp/gd_real
+          fi
+          echo "real levels:"
+          find /tmp/gd_real -maxdepth 1 -name '*.gdl' -print
+          test "$(find /tmp/gd_real -maxdepth 1 -name '*.gdl' | wc -l)" -ge 1
+          for f in /tmp/gd_real/*.gdl; do
+            n="$(grep -c '^o ' "$f")"
+            echo "$(basename "$f"): $n gameplay objects"
+            test "$n" -gt 20
+          done
+
+      - name: Seed an easy verified curriculum floor
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep real demons in the strict eval pool, but give a fresh network
+          # a few deterministic clearable levels so DAgger has a foothold.
+          for f in levels/d0_s0.gdl levels/d1_s0.gdl levels/d2_s0.gdl; do
+            if [[ -f "$f" ]]; then
+              stem="$(basename "$f" .gdl)"
+              cp "$f" "/tmp/gd_proc/proc_${stem}.gdl"
+            fi
+          done
+          test "$(find /tmp/gd_proc -name '*.gdl' | wc -l)" -ge 1
+
+      - name: Train monotonic champion
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf runs/champion runs/champion_work macros_native
+          mkdir -p runs/champion_work macros_native
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            CYCLES="${{ inputs.cycles }}"
+            BEAMS="${{ inputs.beams }}"
+            PPO_STEPS="${{ inputs.ppo_steps }}"
+            EPOCHS=60
+            ROUNDS=4
+            TIERS=5
+            HIDDEN=256
+            RESCUE=1200
+          else
+            # Fast, bounded bootstrap that still exercises exact real-demon
+            # solving and actual DAgger training during this commit's run.
+            CYCLES=1
+            BEAMS="24,96"
+            PPO_STEPS=0
+            EPOCHS=8
+            ROUNDS=1
+            TIERS=2
+            HIDDEN=128
+            RESCUE=96
+          fi
+
+          python3 tools/champion.py \
+            --bin ./build/gdlearn \
+            --levels /tmp/gd_proc \
+            --levels /tmp/gd_real \
+            --work runs/champion_work \
+            --champion runs/champion \
+            --macros macros_native \
+            --cycles "$CYCLES" \
+            --beams "$BEAMS" \
+            --prior-weight 8 \
+            --max-ticks 43200 \
+            --stall-ticks 1440 \
+            --tiers "$TIERS" \
+            --rounds "$ROUNDS" \
+            --epochs "$EPOCHS" \
+            --hidden "$HIDDEN" \
+            --rescue-beam "$RESCUE" \
+            --mem-budget-mb 3500 \
+            --ppo-steps "$PPO_STEPS" \
+            2>&1 | tee runs/champion_work/champion.log
+
+          test -s runs/champion/policy.bin
+          test -s runs/champion/obs_norm.bin
+          test -s runs/champion/schema.txt
+          test -s runs/champion/metrics.json
+
+      - name: Final strict report
+        if: always()
+        shell: bash
+        run: |
+          echo '--- champion metrics ---'
+          if [[ -f runs/champion/metrics.json ]]; then cat runs/champion/metrics.json; fi
+          echo '--- exact native macros ---'
+          find macros_native -maxdepth 1 -name '*.macro' -print 2>/dev/null || true
+          echo '--- tail log ---'
+          tail -n 120 runs/champion_work/champion.log 2>/dev/null || true
+
+      - name: Upload champion checkpoint and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdlearn2-champion-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            runs/champion/policy.bin
+            runs/champion/obs_norm.bin
+            runs/champion/schema.txt
+            runs/champion/metrics.json
+            macros_native/*.macro
+            runs/champion_work/champion.log
+            runs/champion_work/**/metrics.json
