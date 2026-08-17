@@ -123,6 +123,23 @@ int cmdSelftest() {
     check(sim.state().onGround, "cube lands again");
     std::printf("       airtime = %d frames\n", frames);
   }
+  // Regression: the dynamic flight corridor ceiling is ONLY for flight
+  // modes. A gravity-flipped cube used to be snapped from y~650 to y=600,
+  // which let beam search travel through official levels below/through geometry.
+  {
+    Sim sim(&flat);
+    State st = sim.state();
+    st.mode = Mode::Cube;
+    st.flip = true;
+    st.y = 650.0f;
+    st.vy = 0.0f;
+    st.onGround = false;
+    sim.restore(st);
+    sim.step(false);
+    check(sim.state().y > 620.0f,
+          "flipped cube is never clamped by flight corridor ceiling");
+  }
+
   // 3. Determinism: same inputs => bit-identical state.
   {
     Level lv = makeTrainingLevel(3, 7);

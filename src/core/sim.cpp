@@ -160,6 +160,10 @@ void Sim::resolveWorld(float prevY) {
   const float hw = st_.halfW(), hh = st_.halfH();
   const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);
   const float lhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);
+  // Solid sides use the compact inner player hitbox.  Hazards keep
+  // their separately tuned lethal box above.
+  const float bhw = hw * phys::HITBOX_LETHAL_SCALE;
+  const float bhh = hh * phys::HITBOX_LETHAL_SCALE;
 
   // Floor and ceiling are INDEPENDENT planes. They used to be an if/else on
   // gravity, so the ceiling only existed while flipped: a ship in normal
@@ -214,7 +218,7 @@ void Sim::resolveWorld(float prevY) {
     // If no ceiling block exists, cap at level floor + 2*FLIGHT_CEILING
     // (an absolute 20-block ceiling above the floor, generous for any
     // legitimate red-pad jump while still much lower than CEILING_Y=80).
-    if (st_.flip) {
+    if (st_.flip && isFlightMode(st_.mode)) {
       float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;
       if (gidx) {
         const std::vector<Object>& ar = level_->objects();
@@ -296,7 +300,7 @@ void Sim::resolveWorld(float prevY) {
       }
       st_.y = surfaceBottom - hh * g;
       st_.vy = 0;
-    } else if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {
+    } else if (aabb(st_.x, st_.y, bhw, bhh, o.x, o.y, o.hw, o.hh)) {
       // Ran into the wall for real: that is a death in GD, not a slide.
       st_.dead = true;
       return;
