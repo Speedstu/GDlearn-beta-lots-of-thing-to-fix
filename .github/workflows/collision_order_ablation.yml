@@ -1,0 +1,78 @@
+name: collision order fidelity ablation
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/collision_order_ablation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablate:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - hazards_last
+          - reference_order
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reorder collision phases
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          p=Path('src/core/sim.cpp')
+          s=p.read_text()
+          hazard='''  // Pass 2: hazards (inner hitbox), then solids, then boosts.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n\n'''
+          effects='''  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind == Kind::Pad) {\n      if (o.uid != st_.lastPadUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyPad(o);\n    } else if (o.kind == Kind::Orb) {\n      if (st_.holding && st_.holdFrames == 1 && o.uid != st_.lastOrbUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyOrb(o);\n    }\n  }\n'''
+          if hazard not in s or effects not in s:
+              raise SystemExit('expected collision phases not found')
+          s=s.replace(hazard,'',1)
+          s=s.replace(effects,'',1)
+          hazard_last='''\n  // Hazards are resolved last, after effects and block corrections.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n'''
+          if os.environ['MODE']=='hazards_last':
+              # Preserve current effects-after-blocks behaviour; move only hazards.
+              anchor='''  if (!landed && st_.onGround) {\n'''
+              pos=s.find(anchor)
+              if pos < 0: raise SystemExit('post-solid anchor missing')
+              # Insert effects+hazards immediately before end of resolveWorld, after ledge check.
+              close='''  }\n}\n\nvoid Sim::applyPad'''
+              if close not in s: raise SystemExit('resolveWorld close missing')
+              s=s.replace(close,'''  }\n\n'''+effects+hazard_last+'''}\n\nvoid Sim::applyPad''',1)
+          else:
+              # Reference ordering: effects are ordinary interactions and run before blocks;
+              # hazards are deferred until after block collision resolution.
+              block_anchor='''  bool landed = false;\n'''
+              if block_anchor not in s: raise SystemExit('block anchor missing')
+              s=s.replace(block_anchor,effects+'\n'+block_anchor,1)
+              close='''  }\n}\n\nvoid Sim::applyPad'''
+              if close not in s: raise SystemExit('resolveWorld close missing')
+              s=s.replace(close,'''  }\n'''+hazard_last+'''}\n\nvoid Sim::applyPad''',1)
+          p.write_text(s)
+      - name: Build and measure official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          echo "=== MODE ${{ matrix.mode }} ==="
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 2400 --out /tmp/$k.macro
+          done
+          echo '=== TOE2 BEAM 1536 ==='
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 30000 --stall 6000 --out /tmp/t1536.macro
+          set -e
