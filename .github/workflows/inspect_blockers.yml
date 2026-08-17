@@ -1,0 +1,24 @@
+name: inspect official demon blocker regions
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/inspect_blockers.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Theory of Everything 2 first blocker
+        run: python3 tools/inspect_gmd_region.py levels/18.gmd --x 466 --radius 180
+      - name: Clubstep first blocker
+        run: python3 tools/inspect_gmd_region.py levels/14.gmd --x 1605 --radius 180
+      - name: Deadlocked first blocker
+        run: python3 tools/inspect_gmd_region.py levels/20.gmd --x 2270 --radius 180
