@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+from pathlib import Path
+
+# This is a one-shot source transformer used by the fidelity gate. It is kept
+# separate from YAML so GitHub Actions parsing cannot corrupt a large patch.
+
+p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+anchor="ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,\n        1594: 6, 1704: 6, 1751: 6}\n"
+tables=r'''
+
+# Explicit collision tables for classic/official gameplay objects. Unknown IDs
+# stay decoration instead of becoming fake walls.
+SOLID_SIZE = {}
+def _solid(ids, w, h):
+    for _id in ids: SOLID_SIZE[_id] = (float(w), float(h))
+_solid([*range(1,5),6,7,63,*range(69,73),*range(74,79),*range(81,84),
+        *range(90,97),*range(116,120),121,122,146,*range(160,164),
+        *range(165,170),173,175,*range(207,211),212,213,*range(247,251),
+        *range(252,259),260,261,*range(263,266),*range(267,273),274,275,
+        467,469,470,471,1203,1204,1209,1210,1221,1222,1226],30,30)
+_solid([64,195,206,220,661,1155,1157,1208,1910],15,15)
+_solid([40,147,215,369,370,1903,1904,1905],30,14)
+_solid([170,171,172,174,192],30,21)
+_solid([468,475,1260],30,1.5)
+_solid([62,65,66,68],30,16)
+_solid([1202,1262],30,3)
+_solid([1220,1264],30,6)
+_solid([196,219,1911],15,8)
+_solid([204],8,15)
+_solid([662,663,664],30,15)
+_solid([1561],30,10); _solid([1567],15,10); _solid([1566],12,12)
+_solid([1565],17,17); _solid([1227],30,7); _solid([328],22,22)
+_solid([197],22,21); _solid([194],21,21); _solid([176],14,21)
+_solid([1562],30,2); _solid([1343],25,3); _solid([1340],27,2); _solid([34],37,23)
+
+HAZARD_SIZE = {}
+def _haz(ids, w, h):
+    for _id in ids: HAZARD_SIZE[_id] = (float(w), float(h))
+_haz([720,991,1731,1733],2.40039063,3.20001221)
+_haz([61,446,1719,1728],9,7.2); _haz([365,667,1716,1730],9,6)
+_haz([392,458,459],2.6,4.8); _haz([8,144,177,216],6,12)
+_haz([103,145,218],4,7.6); _haz([39,205,217],6,5.6)
+_haz([768,1727],4.5,5.2); _haz([447,1729],5.2,7.2)
+_haz([135,1711],14.1,20); _haz([422,1726],6,4.4)
+_haz([244,1721],6,6.8); _haz([243,1720],6,7.2); _haz([421,1725],9,5.2)
+_haz([9,1715],9,10.8); _haz([989,1732],9,12); _haz([1714],11.4,16.4)
+_haz([1712],13.5,22.4); _haz([368,1722],9,4); _haz([1713],11.7,20)
+_haz([178],6,6.4); _haz([919],25,6); _haz([179],4,8)
+
+SAW_RADIUS = {}
+def _saw(ids, r):
+    for _id in ids: SAW_RADIUS[_id] = float(r)
+_saw([88,186,740,1705],32.3); _saw([89,1706],21.6); _saw([98,1707],12)
+_saw([183],15.660001); _saw([184],20.4); _saw([185],2.8500001)
+_saw([187,741],21.960001); _saw([188,742],12.6000004)
+_saw([397,1708],28.9); _saw([398,1709],17.44); _saw([399,1710],12.900001)
+_saw([675,1734],32); _saw([676,1735],17.5100002); _saw([677,1736],12.479999)
+_saw([678],30.4); _saw([679],18.54); _saw([680],10.8); _saw([918],24)
+_saw([1582,1583],4); _saw([1619],25); _saw([1620],15); _saw([1701,1703],6)
+'''
+if anchor not in s: raise SystemExit('ORBS anchor missing')
+s=s.replace(anchor,anchor+tables,1)
+s=s.replace("    sx = max(0.01, abs(_f(props, 128, scale)))\n    sy = max(0.01, abs(_f(props, 129, scale)))\n",
+            "    sx = scale * max(0.01, abs(_f(props, 128, 1.0)))\n    sy = scale * max(0.01, abs(_f(props, 129, 1.0)))\n",1)
+old="""    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_IDS:\n        hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n    return None\n"""
+new="""    if oid in SAW_RADIUS:\n        r = SAW_RADIUS[oid] * max(sx, sy)\n        return GdlObject('saw', 0, x, y, r, r, oid)\n    if oid in HAZARD_SIZE:\n        w, h = HAZARD_SIZE[oid]\n        hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in SOLID_SIZE:\n        w, h = SOLID_SIZE[oid]\n        hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)\n        return GdlObject('solid', 0, x, y, hw, hh, oid)\n    return None\n"""
+if old not in s: raise SystemExit('classifier collision tail missing')
+p.write_text(s.replace(old,new,1))
+
+p=Path('src/core/level.hpp'); s=p.read_text()
+needle='  Hazard,     // instant death on inner-hitbox overlap\n  Pad,'
+if needle not in s: raise SystemExit('level enum anchor missing')
+p.write_text(s.replace(needle,'  Hazard,     // instant death on inner-hitbox overlap\n  Saw,        // circular sawblade collision\n  Pad,',1))
+
+p=Path('src/core/level.cpp'); s=p.read_text()
+old='const char* kKindNames[] = {"solid", "hazard", "pad", "orb",\n                            "portal", "speed", "deco"};'
+new='const char* kKindNames[] = {"solid", "hazard", "saw", "pad", "orb",\n                            "portal", "speed", "deco"};'
+if old not in s: raise SystemExit('kind names anchor missing')
+s=s.replace(old,new,1).replace('for (int i = 0; i < 7; ++i)','for (int i = 0; i < 8; ++i)',1)
+p.write_text(s)
+
+p=Path('src/core/sim.cpp'); s=p.read_text()
+helper='''inline bool circleAabb(float cx, float cy, float r, float bx, float by,\n                       float bhw, float bhh) {\n  const float qx = std::clamp(cx, bx - bhw, bx + bhw);\n  const float qy = std::clamp(cy, by - bhh, by + bhh);\n  const float dx = cx - qx, dy = cy - qy;\n  return dx * dx + dy * dy <= r * r;\n}\n\n'''
+anchor2='inline bool diesOnTouch(Mode m)'
+if anchor2 not in s: raise SystemExit('sim helper anchor missing')
+s=s.replace(anchor2,helper+anchor2,1)
+old='''  // Pass 2: hazards (inner hitbox), then solids, then boosts.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n'''
+new='''  // Pass 2: lethal objects, then solids, then boosts. Spikes use the\n  // compact lethal hitbox; saws use circular collision against the outer box.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    bool hit = false;\n    if (o.kind == Kind::Hazard)\n      hit = aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh);\n    else if (o.kind == Kind::Saw)\n      hit = circleAabb(o.x, o.y, o.hw, st_.x, st_.y, hw, hh);\n    if (hit) { st_.dead = true; return; }\n  }\n'''
+if old not in s: raise SystemExit('hazard pass anchor missing')
+s=s.replace(old,new,1)
+old='''    if (o.kind == Kind::Hazard && aabb(x, y, 0.5f, 0.5f, o.x, o.y, o.hw, o.hh))\n      return true;\n'''
+new='''    if (o.kind == Kind::Hazard && aabb(x, y, 0.5f, 0.5f, o.x, o.y, o.hw, o.hh))\n      return true;\n    if (o.kind == Kind::Saw) {\n      const float dx=x-o.x, dy=y-o.y;\n      if (dx*dx+dy*dy <= o.hw*o.hw) return true;\n    }\n'''
+if old not in s: raise SystemExit('hazardAt anchor missing')
+p.write_text(s.replace(old,new,1))
+print('exact collision patch applied')
