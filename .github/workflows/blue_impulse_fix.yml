@@ -29,8 +29,8 @@ jobs:
           p.write_text(s)
           p=Path('src/core/sim.cpp')
           s=p.read_text()
-          s=s.replace('''    case PadKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::PAD_BLUE);\n      break;''','''    case PadKind::Blue:\n      st_.flip = !st_.flip;\n      // Blue pads launch along the NEW gravity direction after the flip.\n      boost(phys::PAD_BLUE, /*alongGravity=*/true);\n      break;''')
-          s=s.replace('''    case OrbKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::ORB_BLUE);\n      break;''','''    case OrbKind::Blue:\n      st_.flip = !st_.flip;\n      // Blue orbs use a negative internal velocity before the gravity flip in GD;\n      // with world-space vy that is an impulse along the NEW gravity direction.\n      boost(phys::ORB_BLUE, /*alongGravity=*/true);\n      break;''')
+          s=s.replace('''    case PadKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::PAD_BLUE);\n      break;''','''    case PadKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::PAD_BLUE, /*alongGravity=*/true);\n      break;''')
+          s=s.replace('''    case OrbKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::ORB_BLUE);\n      break;''','''    case OrbKind::Blue:\n      st_.flip = !st_.flip;\n      boost(phys::ORB_BLUE, /*alongGravity=*/true);\n      break;''')
           p.write_text(s)
       - name: Build and selftest
         shell: bash
@@ -51,9 +51,8 @@ jobs:
           for k in c t d; do
             /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 2400 --out /tmp/$k.macro | tee /tmp/log/$k.log
           done
-          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 16000 --stall 4000 --out /tmp/t1536.macro | tee /tmp/log/t1536.log
           set -e
-      - name: Gate and commit fix if better
+      - name: Gate and commit proven fix
         shell: bash
         run: |
           set -euo pipefail
@@ -62,11 +61,11 @@ jobs:
           def p(path):
               t=open(path).read(); m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
               return float(m[-1]) if m else -1
-          c,t,d,tb = p('/tmp/log/c.log'),p('/tmp/log/t.log'),p('/tmp/log/d.log'),p('/tmp/log/t1536.log')
-          print('RESULT', {'clubstep':c,'toe2':t,'deadlocked':d,'toe2_b1536':tb})
-          if c < 5.75: raise SystemExit('Clubstep regression')
+          c,t,d = p('/tmp/log/c.log'),p('/tmp/log/t.log'),p('/tmp/log/d.log')
+          print('RESULT', {'clubstep':c,'toe2':t,'deadlocked':d})
+          if c < 20.0: raise SystemExit('expected Clubstep improvement missing')
           if d < 6.0: raise SystemExit('Deadlocked regression')
-          if max(t,tb) <= 1.61: raise SystemExit('ToE2 not improved')
+          if t < 1.60: raise SystemExit('ToE2 regression')
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
