@@ -52,14 +52,17 @@ SOLID_IDS = set(range(1, 8)) | {
 # gdl PortalKind enum values: cube, ship, ball, ufo, wave, robot, spider,
 # swing, gravity-normal, gravity-flip, size-normal, size-mini.
 PORTALS = {
-    12: 0,              # cube
-    13: 1, 47: 1, 111: 1,  # legacy parser aliases retained for old exports
-    43: 2, 46: 2,
-    747: 3,
-    660: 4, 1049: 4,
-    745: 5,
-    1331: 6,
-    1933: 7,
+    # Classic vehicle portals.
+    12: 0,    # cube
+    13: 1,    # ship
+    47: 2,    # ball
+    111: 3,   # UFO
+    660: 4,   # wave
+    # Later vehicle modes.
+    745: 5,   # robot
+    1331: 6,  # spider
+    1933: 7,  # swing
+    # Gravity / size portals.
     10: 8,
     11: 9,
     99: 10,
@@ -67,9 +70,9 @@ PORTALS = {
 }
 SPEEDS = {200: 0, 201: 1, 202: 2, 203: 3, 1334: 4}
 # gdl PadKind: yellow, pink, red, blue.
-PADS = {35: 0, 140: 2, 67: 3, 1332: 1, 1524: 2, 1697: 3}
+PADS = {35: 0, 140: 1, 1332: 2, 67: 3, 1524: 2, 1697: 3}
 # gdl OrbKind: yellow, pink, red, blue, green, black, dash.
-ORBS = {36: 0, 141: 1, 1330: 2, 84: 3, 1022: 4, 1333: 5,
+ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,
         1594: 6, 1704: 6, 1751: 6}
 
 
