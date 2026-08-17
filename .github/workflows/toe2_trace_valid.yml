@@ -1,0 +1,43 @@
+name: exact ToE2 beam trajectory
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/toe2_trace_valid.yml
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enrich trace output
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          old='''  std::printf("frame  hold      x(bl)   y(bl)     vy  ground  dead  mode\\n");\n'''
+          new='''  std::printf("frame hold x_raw y_raw vy ground dead mode flip pad orb\\n");\n'''
+          if old not in s: raise SystemExit('trace header missing')
+          s=s.replace(old,new,1)
+          old='''      std::printf("%5d  %s   %8.3f %7.3f %6.2f     %d     %d     %d\\n", f,\n                  hold ? "HOLD" : "....", s.x / phys::BLOCK,\n                  s.y / phys::BLOCK, s.vy, s.onGround ? 1 : 0,\n                  s.dead ? 1 : 0, static_cast<int>(s.mode));\n'''
+          new='''      std::printf("%5d %d %.3f %.3f %.6f %d %d %d %d %d %d\\n", f,\n                  hold ? 1 : 0, s.x, s.y, s.vy, s.onGround ? 1 : 0,\n                  s.dead ? 1 : 0, static_cast<int>(s.mode), s.flip ? 1 : 0,\n                  s.lastPadUid, s.lastOrbUid);\n'''
+          if old not in s: raise SystemExit('trace row missing')
+          p.write_text(s.replace(old,new,1))
+      - name: Build solve and trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/t.gdl --name 'Theory of Everything 2'
+          set +e
+          /tmp/build/gdlearn solve /tmp/t.gdl --beam 1536 --widen 0 --max-frames 30000 --stall 6000 --out /tmp/t.macro
+          set -e
+          echo '=== TRACE TICKS 225..380 ==='
+          /tmp/build/gdlearn trace /tmp/t.gdl --macro /tmp/t.macro --frames 380 --from 225
