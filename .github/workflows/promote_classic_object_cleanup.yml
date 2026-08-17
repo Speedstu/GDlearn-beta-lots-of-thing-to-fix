@@ -1,0 +1,108 @@
+name: promote validated classic object cleanup
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/promote_classic_object_cleanup.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply high-confidence classic mappings
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('tools/gmd_to_gdl.py')
+          s=p.read_text()
+
+          # 721 is a shine decoration and 722 a decorative block-art piece.
+          # Neither is lethal.
+          s=s.replace(
+              '    720, 721, 722, 768, 769, 989, 991,\n',
+              '    720, 768, 769, 989, 991,\n', 1)
+
+          # 183..188 are the six classic blade sprites and are lethal hazards.
+          old='''    8, 9, 39, 61, 103, 135, 143, 205,\n'''
+          new='''    8, 9, 39, 61, 103, 135, 143, 183, 184, 185, 186, 187, 188, 205,\n'''
+          if old not in s: raise SystemExit('hazard table anchor missing')
+          s=s.replace(old,new,1)
+
+          # 118..122 are block-family pieces; 119 must remain collidable.
+          # 123..128 are thorn/bush decoration and 129 is a cloud decoration.
+          old='''    *range(118, 130),\n'''
+          new='''    118, 119, 120, 121, 122,\n'''
+          if old not in s: raise SystemExit('118..129 solid range anchor missing')
+          s=s.replace(old,new,1)
+
+          # 185..188 are handled above as hazards. 190 is decoration, 191 is
+          # the non-lethal fake spike, and 192 is the actual block.
+          old='''    *range(185, 193),\n'''
+          new='''    192,\n'''
+          if old not in s: raise SystemExit('185..192 solid range anchor missing')
+          s=s.replace(old,new,1)
+
+          p.write_text(s)
+
+      - name: Static converter assertions
+        shell: python
+        run: |
+          import sys
+          sys.path.insert(0,'tools')
+          import gmd_to_gdl as g
+          for oid in (721,722,123,124,125,126,127,128,129,190,191):
+              assert oid not in g.HAZARD_IDS and oid not in g.SOLID_IDS, oid
+          for oid in (183,184,185,186,187,188):
+              assert oid in g.HAZARD_IDS and oid not in g.SOLID_IDS, oid
+          for oid in (118,119,120,121,122,192):
+              assert oid in g.SOLID_IDS, oid
+          print('classification assertions PASS')
+
+      - name: Build selftest and demon gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 256 --widen 0 --max-frames 43200 --stall 6000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 16000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 16000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def p(k):
+              t=Path('/tmp/log/'+k+'.log').read_text()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+              return float(m[-1]) if m else -1.0
+          r={'clubstep':p('c'),'toe2':p('t'),'deadlocked':p('d')}
+          print('RESULT',r)
+          assert r['clubstep'] >= 9.29, r
+          assert r['toe2'] >= 28.64, r
+          assert r['deadlocked'] >= 6.74, r
+          PY
+
+      - name: Commit validated mappings
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/gmd_to_gdl.py
+          git rm .github/workflows/promote_classic_object_cleanup.yml
+          git commit -m 'fix classic decoration blade and fake-spike mappings'
+          git push
