@@ -91,14 +91,17 @@ bool Sim::step(bool hold) {
   lastContactUid_ = -1;
   deathUid_ = -1;
 
-  const bool press = hold && !st_.holding;
+  const State prev = st_;
+  const bool press = hold && !prev.holding;
+  // Pathfinder/GD input buffering: only a button edge writes the buffer.
+  // A held press stays buffered until an orb consumes it.
+  if (hold != prev.holding) st_.buffer = hold;
   st_.holding = hold;
   st_.holdFrames = hold ? static_cast<uint16_t>(st_.holdFrames + 1) : 0;
 
-  const float prevY = st_.y;
   st_.x += st_.speed * phys::DT;
   st_.y += st_.vy;
-  resolveWorld(prevY);
+  resolveWorld(prev);
   if (alive()) applyMotion(press, hold);
 
   // Cosmetic rotation, exposed to the policy because it correlates with the
@@ -217,8 +220,9 @@ void Sim::applyMotion(bool press, bool hold) {
 }
 
 // --------------------------------------------------------- world contact ----
-void Sim::resolveWorld(float prevY) {
+void Sim::resolveWorld(const State& prev) {
   if (!level_) return;
+  const float prevY = prev.y;
   const float g = st_.gdir();
   const float hw = st_.halfW(), hh = st_.halfH();
   const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);
@@ -382,8 +386,14 @@ void Sim::resolveWorld(float prevY) {
           aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))
         applyPad(o);
     } else if (o.kind == Kind::Orb) {
-      if (st_.holding && st_.holdFrames == 1 && o.uid != st_.lastOrbUid &&
-          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))
+      const bool touchingNow = aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh);
+      const bool touchingPrev = aabb(prev.x, prev.y, prev.halfW(), prev.halfH(),
+                                     o.x, o.y, o.hw, o.hh);
+      // Orb::touching in Pathfinder is current OR previous frame.  The second
+      // term reproduces release-coyote: a buffered press from the previous
+      // frame may still fire while the button is now up.
+      const bool canFire = st_.buffer || (prev.buffer && !st_.holding);
+      if (canFire && o.uid != st_.lastOrbUid && (touchingNow || touchingPrev))
         applyOrb(o);
     }
   }
@@ -430,6 +440,7 @@ void Sim::applyPad(const Object& o) {
 void Sim::applyOrb(const Object& o) {
   lastContactUid_ = o.uid;
   st_.lastOrbUid = o.uid;
+  st_.buffer = false;
   const OrbKind k = static_cast<OrbKind>(o.sub);
   if (st_.mode == Mode::Cube) {
     if (k == OrbKind::Blue || k == OrbKind::Green) st_.flip = !st_.flip;

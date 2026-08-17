@@ -186,8 +186,14 @@ int cmdSelftest() {
     Sim b(&lv);
     for (uint8_t h : inputs)
       if (!b.step(h != 0)) break;
-    check(std::memcmp(&a.state(), &b.state(), sizeof(State)) == 0,
-          "simulator is deterministic");
+    const State& sa=a.state(); const State& sb=b.state();
+    const bool same = sa.x==sb.x && sa.y==sb.y && sa.vy==sb.vy && sa.rotation==sb.rotation &&
+      sa.speed==sb.speed && sa.frame==sb.frame && sa.lastOrbUid==sb.lastOrbUid &&
+      sa.lastPadUid==sb.lastPadUid && sa.holdFrames==sb.holdFrames && sa.jumpHold==sb.jumpHold &&
+      sa.mode==sb.mode && sa.tier==sb.tier && sa.flip==sb.flip && sa.mini==sb.mini &&
+      sa.onGround==sb.onGround && sa.holding==sb.holding && sa.buffer==sb.buffer &&
+      sa.dead==sb.dead && sa.won==sb.won;
+    check(same, "simulator is deterministic");
   }
   // 4. Snapshot / restore round-trip (required by beam search).
   {

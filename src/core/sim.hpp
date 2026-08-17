@@ -34,6 +34,7 @@ struct State {
   bool mini = false;
   bool onGround = true;
   bool holding = false;
+  bool buffer = false;
   bool dead = false;
   bool won = false;
 
@@ -77,7 +78,7 @@ class Sim {
 
  private:
   void applyMotion(bool press, bool hold);
-  void resolveWorld(float prevY);
+  void resolveWorld(const State& prev);
   void applyPad(const Object& o);
   void applyOrb(const Object& o);
   void applyPortal(const Object& o);

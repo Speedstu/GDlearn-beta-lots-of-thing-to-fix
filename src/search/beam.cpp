@@ -28,7 +28,7 @@ inline uint64_t stateKey(const State& s) {
   mix(static_cast<uint64_t>(s.mode));
   mix(static_cast<uint64_t>(s.tier));
   mix((s.flip ? 1u : 0u) | (s.mini ? 2u : 0u) | (s.onGround ? 4u : 0u) |
-      (s.holding ? 8u : 0u));
+      (s.holding ? 8u : 0u) | (s.buffer ? 16u : 0u));
   mix(static_cast<uint64_t>(s.jumpHold));
   mix(static_cast<uint64_t>(s.lastOrbUid + 2));
   mix(static_cast<uint64_t>(s.lastPadUid + 2));

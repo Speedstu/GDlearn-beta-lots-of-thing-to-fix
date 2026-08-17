@@ -66,6 +66,7 @@ void encodeObs(const Sim& sim, float* out) {
     sc[i++] = std::cos(6.2831853f * fx);
     sc[i++] = fy;
   }
+  if (i < ObsSpec::kScalars) sc[i++] = s.buffer ? 1.0f : 0.0f;
   while (i < ObsSpec::kScalars) sc[i++] = 0.0f;
 
   if (!lv) return;
