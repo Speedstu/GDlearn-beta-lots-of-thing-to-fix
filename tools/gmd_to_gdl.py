@@ -175,11 +175,24 @@ def classify(props: Dict[int, str]) -> Optional[GdlObject]:
     rot = _f(props, 6, 0.0)
 
     if oid in PORTALS:
-        return GdlObject('portal', PORTALS[oid], x, y, 12.0 * sx, 45.0 * sy, oid)
+        if oid in (12, 13, 47, 111, 660):
+            pw, ph = 17.0, 43.0
+        elif oid in (10, 11):
+            pw, ph = 12.5, 37.5
+        elif oid in (99, 101):
+            pw, ph = 15.5, 45.0
+        else:
+            pw, ph = 12.0, 45.0
+        return GdlObject('portal', PORTALS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in SPEEDS:
-        return GdlObject('speed', SPEEDS[oid], x, y, 10.0 * sx, 20.0 * sy, oid)
+        dims = {200:(17.5,22.0), 201:(16.5,28.0), 202:(25.5,28.0),
+                203:(32.5,28.0), 1334:(34.5,28.0)}
+        pw, ph = dims.get(oid, (10.0,20.0))
+        return GdlObject('speed', SPEEDS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in PADS:
-        return GdlObject('pad', PADS[oid], x, y, 15.0 * sx, 5.0 * sy, oid)
+        dims = {35:(12.5,2.0), 140:(12.5,2.5), 67:(12.5,3.0)}
+        pw, ph = dims.get(oid, (15.0,5.0))
+        return GdlObject('pad', PADS[oid], x, y, pw * sx, ph * sy, oid)
     if oid in ORBS:
         return GdlObject('orb', ORBS[oid], x, y, 18.0 * sx, 18.0 * sy, oid)
     if oid in HAZARD_IDS:
