@@ -1,4 +1,4 @@
-name: exact hazard fidelity matrix
+name: exact hazard fidelity A-B
 
 on:
   push:
@@ -11,30 +11,34 @@ permissions:
   contents: read
 
 jobs:
-  variant:
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [sizes, sizes_scale]
+  compare:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply isolated converter variant
-        shell: python
-        env:
-          VARIANT: ${{ matrix.variant }}
+      - name: Build engine
+        shell: bash
         run: |
-          import os
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+
+      - name: Create exact-hazard patch helper
+        shell: bash
+        run: |
+          cat > /tmp/hazard_patch.py <<'PY'
+          import sys
           from pathlib import Path
+          use_scale = sys.argv[1] == 'scale'
           p=Path('tools/gmd_to_gdl.py')
           s=p.read_text()
-          anchor="""ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,\n        1594: 6, 1704: 6, 1751: 6}\n"""
+          anchor="""ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,
+                  1594: 6, 1704: 6, 1751: 6}
+          """
           table="""
-
-          # Reverse-engineered full hazard hitbox sizes (world units) for the
-          # classic object families used by the bundled official demons.
+          # Reverse-engineered full classic hazard hitbox sizes in world units.
           CLASSIC_HAZARD_SIZE = {
               720:(2.40039063,3.20001221), 991:(2.40039063,3.20001221),
               61:(9.0,7.2), 446:(9.0,7.2), 365:(9.0,6.0), 667:(9.0,6.0),
@@ -44,57 +48,88 @@ jobs:
               243:(6.0,7.2), 421:(9.0,5.2), 9:(9.0,10.8),
               989:(9.0,12.0), 178:(6.0,6.4), 179:(4.0,8.0), 919:(25.0,6.0),
           }
-"""
-          if anchor not in s: raise SystemExit('mapping anchor not found')
+          """
+          if anchor not in s:
+              raise SystemExit('mapping anchor not found')
           s=s.replace(anchor,anchor+table,1)
-
-          old="""    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n"""
-          new="""    if oid in CLASSIC_HAZARD_SIZE:\n        w, h = CLASSIC_HAZARD_SIZE[oid]\n        hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n"""
-          if old not in s: raise SystemExit('hazard classify block not found')
+          old="""    if oid in HAZARD_IDS:
+                  hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
+                  return GdlObject('hazard', 0, x, y, hw, hh, oid)
+          """
+          new="""    if oid in CLASSIC_HAZARD_SIZE:
+                  w, h = CLASSIC_HAZARD_SIZE[oid]
+                  hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)
+                  return GdlObject('hazard', 0, x, y, hw, hh, oid)
+              if oid in HAZARD_IDS:
+                  hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
+                  return GdlObject('hazard', 0, x, y, hw, hh, oid)
+          """
+          if old not in s:
+              raise SystemExit('hazard classify block not found')
           s=s.replace(old,new,1)
-
-          if os.environ['VARIANT']=='sizes_scale':
-              old="""    scale = max(0.01, abs(_f(props, 32, 1.0)))\n    sx = max(0.01, abs(_f(props, 128, scale)))\n    sy = max(0.01, abs(_f(props, 129, scale)))\n"""
-              new="""    scale = max(0.01, abs(_f(props, 32, 1.0)))\n    sx = scale * max(0.01, abs(_f(props, 128, 1.0)))\n    sy = scale * max(0.01, abs(_f(props, 129, 1.0)))\n"""
-              if old not in s: raise SystemExit('scale block not found')
+          if use_scale:
+              old="""    scale = max(0.01, abs(_f(props, 32, 1.0)))
+              sx = max(0.01, abs(_f(props, 128, scale)))
+              sy = max(0.01, abs(_f(props, 129, scale)))
+          """
+              new="""    scale = max(0.01, abs(_f(props, 32, 1.0)))
+              sx = scale * max(0.01, abs(_f(props, 128, 1.0)))
+              sy = scale * max(0.01, abs(_f(props, 129, 1.0)))
+          """
+              if old not in s:
+                  raise SystemExit('scale block not found')
               s=s.replace(old,new,1)
           p.write_text(s)
-
-      - name: Build and probe same three official demons
-        shell: bash
-        env:
-          VARIANT: ${{ matrix.variant }}
-        run: |
-          set -euo pipefail
-          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build /tmp/build -j"$(nproc)"
-          /tmp/build/gdlearn selftest
-          mkdir -p /tmp/l /tmp/log
-          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
-          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
-          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
-          set +e
-          for k in c t d; do
-            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 \
-              --max-frames 43200 --stall 1440 --out /tmp/$k.macro | tee /tmp/log/$k.log
-          done
-          set -e
-          python3 - <<'PY'
-          import json,os,re
-          baseline={'c':6.00,'t':1.61,'d':6.41}
-          r={'variant':os.environ['VARIANT']}
-          for k in baseline:
-              txt=open('/tmp/log/'+k+'.log').read()
-              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',txt)
-              r[k]=float(m[-1]) if m else -1
-          r['sum']=sum(r[k] for k in baseline)
-          r['baseline_sum']=sum(baseline.values())
-          print('HAZARD_RESULT='+json.dumps(r,sort_keys=True))
-          open('/tmp/result.json','w').write(json.dumps(r,indent=2))
           PY
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hazard-${{ matrix.variant }}-${{ github.run_id }}
-          path: /tmp/result.json
-          retention-days: 2
+      - name: Probe exact hazard sizes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tools/gmd_to_gdl.py /tmp/original.py
+          python3 /tmp/hazard_patch.py noscale
+          mkdir -p /tmp/l1 /tmp/log1
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l1/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l1/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l1/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l1/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 1440 --out /tmp/one-$k.macro | tee /tmp/log1/$k.log
+          done
+          set -e
+
+      - name: Probe exact hazard sizes plus composed scale
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/original.py tools/gmd_to_gdl.py
+          python3 /tmp/hazard_patch.py scale
+          mkdir -p /tmp/l2 /tmp/log2
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l2/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l2/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l2/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l2/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 1440 --out /tmp/two-$k.macro | tee /tmp/log2/$k.log
+          done
+          set -e
+
+      - name: Print comparison
+        shell: python
+        run: |
+          import re
+          baseline={'c':6.00,'t':1.61,'d':6.41}
+          def values(root):
+              out={}
+              for k in baseline:
+                  text=open(root+'/'+k+'.log').read()
+                  m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',text)
+                  if not m:
+                      raise SystemExit('missing '+root+'/'+k)
+                  out[k]=float(m[-1])
+              return out
+          a=values('/tmp/log1')
+          b=values('/tmp/log2')
+          print('BASELINE',baseline,'sum',sum(baseline.values()))
+          print('HAZARD_SIZES',a,'sum',sum(a.values()))
+          print('HAZARD_SIZES_SCALE',b,'sum',sum(b.values()))
