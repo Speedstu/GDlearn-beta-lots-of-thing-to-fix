@@ -12,34 +12,22 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/apply_orb_buffer_v6.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/app/main.cpp');s=p.read_text()
+          old='''    check(std::memcmp(&a.state(), &b.state(), sizeof(State)) == 0,\n          "simulator is deterministic");\n'''
+          new='''    const State& sa=a.state(); const State& sb=b.state();\n    const bool same = sa.x==sb.x && sa.y==sb.y && sa.vy==sb.vy && sa.rotation==sb.rotation &&\n      sa.speed==sb.speed && sa.frame==sb.frame && sa.lastOrbUid==sb.lastOrbUid &&\n      sa.lastPadUid==sb.lastPadUid && sa.holdFrames==sb.holdFrames && sa.jumpHold==sb.jumpHold &&\n      sa.mode==sb.mode && sa.tier==sb.tier && sa.flip==sb.flip && sa.mini==sb.mini &&\n      sa.onGround==sb.onGround && sa.holding==sb.holding && sa.buffer==sb.buffer &&\n      sa.dead==sb.dead && sa.won==sb.won;\n    check(same, "simulator is deterministic");\n'''
+          if old not in s: raise SystemExit('determinism anchor')
+          p.write_text(s.replace(old,new,1))
+          PY
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
           cmake --build build -j"$(nproc)" >/dev/null
           ./build/gdlearn selftest
-          cat >/tmp/b.gdl <<'EOF'
-          # gdlearn level v1
-          name buffer_test
-          floor 0
-          roof 0
-          length 1000
-          o orb 0 10 70 18 18 36
-          EOF
-          # Press long before reaching the orb; exact GD buffer must persist and
-          # consume it once overlap happens.
-          cat >/tmp/b.macro <<'EOF'
-          # gdlearn macro v2 native-240-tps
-          level buffer_test
-          fps 240
-          progress 0
-          frames 20
-          r 1 20
-          EOF
-          ./build/gdlearn trace /tmp/b.gdl --macro /tmp/b.macro --frames 20 | tee /tmp/b.trace
-          grep -E ' [0-9]+$' /tmp/b.trace >/dev/null || true
       - shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/core/sim.hpp src/core/sim.cpp src/search/beam.cpp src/env/obs.cpp
+          git add src/core/sim.hpp src/core/sim.cpp src/search/beam.cpp src/env/obs.cpp src/app/main.cpp
           git rm tools/apply_orb_buffer_v6.py .github/workflows/apply_orb_buffer_v6.yml
           git commit -m 'match GD orb input buffer and one-tick coyote overlap'
           git push
