@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <numeric>
 #include <thread>
 
@@ -12,6 +14,7 @@
 #include "env/obs.hpp"
 
 namespace gd {
+namespace fs = std::filesystem;
 
 Ppo::Ppo(const std::vector<Level>* pool, PpoConfig cfg)
     : pool_(pool), cfg_(cfg) {
@@ -37,14 +40,12 @@ Ppo::Ppo(const std::vector<Level>* pool, PpoConfig cfg)
     envs_[e].reset(lastObs_.data() + static_cast<size_t>(e) * obsDim_);
 }
 
-// ---------------------------------------------------------------- collect ----
 void Ppo::collect() {
   const int nEnv = cfg_.numEnvs, nStep = cfg_.stepsPerEnv;
   int threads = cfg_.threads > 0 ? cfg_.threads
                                  : static_cast<int>(std::thread::hardware_concurrency());
   threads = std::clamp(threads, 1, nEnv);
 
-  // The policy is FROZEN during collection, so shards need no synchronisation.
   auto worker = [&](int lo, int hi, uint64_t seed) {
     Rng rng(seed);
     const int shard = hi - lo;
@@ -55,13 +56,12 @@ void Ppo::collect() {
     float best = 0;
 
     for (int t = 0; t < nStep; ++t) {
-      // Gather + normalise this shard's observations.
       for (int e = lo; e < hi; ++e)
         std::memcpy(obs.data() + static_cast<size_t>(e - lo) * obsDim_,
                     lastObs_.data() + static_cast<size_t>(e) * obsDim_,
                     sizeof(float) * obsDim_);
       norm_.apply(obs.data(), shard);
-      net_.forward(obs.data(), shard, &logits, &values, /*cache=*/false);
+      net_.forward(obs.data(), shard, &logits, &values, false);
 
       for (int e = lo; e < hi; ++e) {
         const int k = e - lo;
@@ -89,13 +89,13 @@ void Ppo::collect() {
         }
       }
     }
-    // Bootstrap value for the state we stopped in.
+
     for (int e = lo; e < hi; ++e)
       std::memcpy(obs.data() + static_cast<size_t>(e - lo) * obsDim_,
                   lastObs_.data() + static_cast<size_t>(e) * obsDim_,
                   sizeof(float) * obsDim_);
     norm_.apply(obs.data(), shard);
-    net_.forward(obs.data(), shard, &logits, &values, /*cache=*/false);
+    net_.forward(obs.data(), shard, &logits, &values, false);
     for (int e = lo; e < hi; ++e)
       valBuf_[static_cast<size_t>(nStep) * nEnv + e] = values[e - lo];
 
@@ -123,18 +123,13 @@ void Ppo::collect() {
     bestProgress_ = std::max(bestProgress_, std::get<4>(o));
   }
   stepsDone_ += static_cast<int64_t>(nEnv) * nStep;
-  // Update normalisation stats from this rollout (raw obs were already
-  // normalised with the previous stats, which is standard practice and keeps
-  // the buffers consistent within an update).
   norm_.observe(obsBuf_.data(), 256);
 }
 
-// ----------------------------------------------------------------- update ----
 void Ppo::update(float progressFrac) {
   const int nEnv = cfg_.numEnvs, nStep = cfg_.stepsPerEnv;
   const size_t roll = static_cast<size_t>(nEnv) * nStep;
 
-  // GAE(lambda), walking backwards through time per env.
   std::vector<float> gae(nEnv, 0.0f);
   for (int t = nStep - 1; t >= 0; --t) {
     for (int e = 0; e < nEnv; ++e) {
@@ -174,9 +169,8 @@ void Ppo::update(float progressFrac) {
                     sizeof(float) * obsDim_);
 
       net_.zeroGrad();
-      net_.forward(mbObs.data(), mb, &logits, &values, /*cache=*/true);
+      net_.forward(mbObs.data(), mb, &logits, &values, true);
 
-      // Per-minibatch advantage normalisation.
       double m = 0, v = 0;
       for (int i = 0; i < mb; ++i) m += advBuf_[order[start + i]];
       m /= mb;
@@ -198,18 +192,15 @@ void Ppo::update(float progressFrac) {
         const float ratio = std::exp(logp - logpBuf_[s]);
         const float adv = (advBuf_[s] - static_cast<float>(m)) / sd;
 
-        // Clipped surrogate: gradient is zero outside the trust region.
         const bool clipped =
             (adv >= 0 && ratio > 1.0f + cfg_.clip) ||
             (adv < 0 && ratio < 1.0f - cfg_.clip);
         float dLogp = clipped ? 0.0f : -adv * ratio;
 
-        // d(logp)/d(logits) = onehot(a) - probs
         for (int k = 0; k < 2; ++k) {
           const float dl = ((k == a ? 1.0f : 0.0f) - probs[k]);
           dLogits[static_cast<size_t>(i) * 2 + k] += dLogp * dl * invMb;
         }
-        // Entropy bonus: -entCoef * H  =>  dH/dlogits = -p*(logp + H)
         float H = 0;
         for (int k = 0; k < 2; ++k)
           H -= probs[k] * std::log(std::max(probs[k], 1e-8f));
@@ -218,7 +209,6 @@ void Ppo::update(float progressFrac) {
           const float dH = -probs[k] * (lp + H);
           dLogits[static_cast<size_t>(i) * 2 + k] += -entCoef * dH * invMb;
         }
-        // Clipped value loss.
         const float vPred = values[i];
         const float vOld = valBuf_[s];
         const float vClipped =
@@ -238,7 +228,6 @@ void Ppo::update(float progressFrac) {
   updates_++;
 }
 
-// ------------------------------------------------------------------ train ----
 void Ppo::train() {
   const int64_t perUpdate = static_cast<int64_t>(cfg_.numEnvs) * cfg_.stepsPerEnv;
   const int totalUpdates = static_cast<int>(cfg_.totalSteps / perUpdate) + 1;
@@ -281,7 +270,6 @@ void Ppo::train() {
   if (csv) std::fclose(csv);
 }
 
-// --------------------------------------------------------------- evaluate ----
 Ppo::Rollout Ppo::evaluate(const Level& level, int maxFrames, bool stochastic) {
   Rollout out;
   Sim sim(&level);
@@ -290,7 +278,7 @@ Ppo::Rollout Ppo::evaluate(const Level& level, int maxFrames, bool stochastic) {
   for (int f = 0; f < maxFrames; ++f) {
     encodeObs(sim, obs.data());
     norm_.apply(obs.data(), 1);
-    net_.forward(obs.data(), 1, &logits, &values, /*cache=*/false);
+    net_.forward(obs.data(), 1, &logits, &values, false);
     nn::softmax(logits.data(), 2, probs.data());
     const bool hold =
         stochastic ? (rng.uniform() < probs[1]) : (probs[1] > 0.5f);
@@ -303,10 +291,36 @@ Ppo::Rollout Ppo::evaluate(const Level& level, int maxFrames, bool stochastic) {
 }
 
 bool Ppo::saveCheckpoint(const std::string& dir) const {
-  return net_.save(dir + "/policy.bin") && norm_.save(dir + "/obs_norm.bin");
+  std::error_code ec;
+  fs::create_directories(dir, ec);
+  if (ec) return false;
+  if (!net_.save(dir + "/policy.bin") || !norm_.save(dir + "/obs_norm.bin"))
+    return false;
+  std::ofstream meta(dir + "/schema.txt", std::ios::trunc);
+  if (!meta) return false;
+  meta << "gdlearn_policy_v2\n";
+  meta << "tps " << phys::TPS << "\n";
+  meta << "obs_dim " << obsDim_ << "\n";
+  return static_cast<bool>(meta);
 }
 
 bool Ppo::loadCheckpoint(const std::string& dir) {
+  std::ifstream meta(dir + "/schema.txt");
+  if (!meta) return false;
+  std::string magic;
+  std::getline(meta, magic);
+  if (magic != "gdlearn_policy_v2") return false;
+  int tps = -1, dim = -1;
+  std::string key;
+  while (meta >> key) {
+    if (key == "tps") meta >> tps;
+    else if (key == "obs_dim") meta >> dim;
+    else {
+      std::string ignored;
+      std::getline(meta, ignored);
+    }
+  }
+  if (tps != phys::TPS || dim != obsDim_) return false;
   const bool a = net_.load(dir + "/policy.bin");
   const bool b = norm_.load(dir + "/obs_norm.bin");
   return a && b;
