@@ -29,7 +29,11 @@ from typing import Dict, Iterable, Optional, Tuple
 HAZARD_IDS = {
     8, 9, 39, 61, 103, 135, 143, 205,
     363, 364, 365, 392, 393, 394, 446, 447,
-    667, 720, 721, 722, 768, 769, 989, 991,
+    # Legacy 1.9 hazards.  673/674 are invisible triangles, 675-677 are the
+    # old black cogwheels, and 678-680 are the light-blade family.  They were
+    # previously swallowed by a broad SOLID_IDS range and became fake walls.
+    667, 673, 674, 675, 676, 677, 678, 679, 680,
+    720, 721, 722, 768, 769, 989, 991,
 }
 
 # Only IDs known to participate in collision are solids. Geometry Dash
@@ -46,7 +50,12 @@ SOLID_IDS = set(range(1, 8)) | {
     71, 72, 73, 74, 75, 76, 77, 78,
     *range(118, 130),
     *range(185, 193),
-    *range(661, 696),
+    # 668-672 are legacy d_pixelArt01 decoration pieces and have no gameplay
+    # collision.  673-680 are hazard families handled above.  Keeping these
+    # holes explicit prevents hundreds of decorative objects from becoming
+    # 30x30 collision blocks in official demons.
+    *range(661, 668),
+    *range(681, 696),
 }
 
 # gdl PortalKind enum values: cube, ship, ball, ufo, wave, robot, spider,
