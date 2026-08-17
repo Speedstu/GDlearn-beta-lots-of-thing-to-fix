@@ -1,0 +1,65 @@
+name: flipped flight ceiling mode fix
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/flipped_flight_clamp_fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restrict flipped flight ceiling to flight modes
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          old='''    if (st_.flip) {\n      float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;\n'''
+          new='''    if (st_.flip && isFlightMode(st_.mode)) {\n      float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;\n'''
+          if old not in s: raise SystemExit('flipped ceiling anchor missing')
+          p.write_text(s.replace(old,new,1))
+      - name: Build selftest and official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/$k.macro | tee /tmp/log/$k.log; done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 43200 --stall 8000 --out /tmp/t1536.macro | tee /tmp/log/t1536.log
+          set -e
+      - name: Gate and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          def p(f):
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',open(f).read())
+              return float(m[-1]) if m else -1
+          c,t,d,tb=p('/tmp/log/c.log'),p('/tmp/log/t.log'),p('/tmp/log/d.log'),p('/tmp/log/t1536.log')
+          print('RESULT',{'clubstep':c,'toe2':t,'deadlocked':d,'toe2_b1536':tb})
+          if c < 24.0: raise SystemExit('Clubstep regression')
+          if d < 6.0: raise SystemExit('Deadlocked regression')
+          if max(t,tb) <= 2.0: raise SystemExit('ToE2 not materially unblocked')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.cpp
+          git rm .github/workflows/flipped_flight_clamp_fix.yml
+          git commit -m 'fix flipped flight ceiling affecting grounded modes'
+          git push
