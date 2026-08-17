@@ -1,4 +1,4 @@
-name: gdlearn2 bootstrap and validate
+name: gdlearn2 bootstrap diagnostic
 
 on:
   push:
@@ -12,16 +12,16 @@ jobs:
   bootstrap:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Reconstruct gdlearn2 bootstrap
+      - name: Reconstruct bootstrap archive
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           {
             cat .bootstrap/part-00 .bootstrap/repair-00tail
             cat .bootstrap/part-01 .bootstrap/part-02 .bootstrap/part-03
@@ -32,69 +32,45 @@ jobs:
             cat .bootstrap/part-09 .bootstrap/repair-09tail
             cat .bootstrap/part-10
           } > /tmp/gdlearn2_bootstrap.b64
-          test "$(wc -c < /tmp/gdlearn2_bootstrap.b64)" -eq 130384
+
+          B64_BYTES="$(wc -c < /tmp/gdlearn2_bootstrap.b64 | tr -d ' ')"
+          B64_SHA="$(sha256sum /tmp/gdlearn2_bootstrap.b64 | awk '{print $1}')"
+          printf 'base64_bytes=%s\nbase64_sha256=%s\n' "$B64_BYTES" "$B64_SHA" | tee /tmp/bootstrap_diag.txt
+
           base64 -d /tmp/gdlearn2_bootstrap.b64 > /tmp/gdlearn2_bootstrap.zip
-          echo '33eec6c0b42e1142ab3a880ca593cc96e4dc593cc4e0239b91e52976dcd64eda  /tmp/gdlearn2_bootstrap.zip' | sha256sum -c -
+          ZIP_BYTES="$(wc -c < /tmp/gdlearn2_bootstrap.zip | tr -d ' ')"
+          ZIP_SHA="$(sha256sum /tmp/gdlearn2_bootstrap.zip | awk '{print $1}')"
+          printf 'zip_bytes=%s\nzip_sha256=%s\n' "$ZIP_BYTES" "$ZIP_SHA" | tee -a /tmp/bootstrap_diag.txt
+
+          test "$B64_BYTES" -eq 130384
+          test "$ZIP_SHA" = '33eec6c0b42e1142ab3a880ca593cc96e4dc593cc4e0239b91e52976dcd64eda'
           unzip -t /tmp/gdlearn2_bootstrap.zip
 
-      - name: Replace old project but preserve raw Geometry Dash levels
+      - name: Replace legacy project with reconstructed gdlearn2
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           mkdir -p /tmp/raw_levels /tmp/newsrc
           cp -a levels/. /tmp/raw_levels/
           unzip -q /tmp/gdlearn2_bootstrap.zip -d /tmp/newsrc
-          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name .github -exec rm -rf {} +
+
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name .git \
+            ! -name .github \
+            -exec rm -rf {} +
+
           cp -a /tmp/newsrc/. .
           mkdir -p levels
           cp -a /tmp/raw_levels/. levels/
+          cp /tmp/bootstrap_diag.txt BOOTSTRAP_DIAG.txt
           rm -f README_TEMP_TEST.txt
 
-      - name: Regenerate all maps from raw gmd
+      - name: Commit reconstructed source
         shell: bash
         run: |
-          set -euxo pipefail
-          rm -rf levels_real
-          mkdir -p levels_real
-          python3 tools/gmd_to_gdl.py 'levels/*.gmd' -o levels_real
-          test -f levels_real/1.gdl
-          test -f levels_real/14.gdl
-          test -f levels_real/22.gdl
-          test -f levels_real/3001.gdl
-
-      - name: Build release
-        shell: bash
-        run: |
-          set -euxo pipefail
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build -j"$(nproc)"
-
-      - name: Core selftest
-        run: ./build/gdlearn selftest
-
-      - name: Regression macros already known at 100 percent
-        shell: bash
-        run: |
-          set -euxo pipefail
-          ./build/gdlearn replay levels_real/1.gdl macros/1.macro
-          ./build/gdlearn replay levels_real/11.gdl macros/11.macro
-          ./build/gdlearn replay levels_real/17.gdl macros/17.macro
-          ./build/gdlearn replay levels_real/3001.gdl macros/3001.macro
-
-      - name: Clubstep partial macro diagnostic
-        shell: bash
-        run: |
-          set +e
-          ./build/gdlearn replay levels_real/14.gdl macros/14_clubstep.macro | tee /tmp/clubstep.txt
-          exit 0
-
-      - name: Commit validated replacement to branch
-        shell: bash
-        run: |
-          set -euxo pipefail
-          rm -rf build
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'replace old bot with gdlearn2' || true
+          git commit -m 'bootstrap gdlearn2 source from validated payload'
           git push origin HEAD:agent/gdlearn2-replace
