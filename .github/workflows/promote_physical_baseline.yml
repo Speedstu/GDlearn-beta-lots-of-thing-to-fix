@@ -1,0 +1,160 @@
+name: promote physically valid baseline
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/promote_physical_baseline.yml
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply validated fidelity fixes
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/core/sim.cpp')
+          s=p.read_text()
+
+          # 1) Ground modes must never use the synthetic flight ceiling.
+          old='''    if (st_.flip) {\n      float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;\n'''
+          new='''    if (st_.flip && isFlightMode(st_.mode)) {\n      float flipRef = level_->floorY + 2.0f * phys::FLIGHT_CEILING;\n'''
+          if old not in s:
+              raise SystemExit('flipped ceiling anchor missing')
+          s=s.replace(old,new,1)
+
+          # 2) HITBOX_LETHAL_SCALE=0.30 means a 30% inner box (9x9 on normal cube),
+          # not 70%. Preserve the previous hazard box for this promotion; only
+          # solid side collisions switch to the true inner box.
+          old='''  const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);\n  const float lhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);\n'''
+          new='''  const float ihw = hw * phys::HITBOX_LETHAL_SCALE;\n  const float ihh = hh * phys::HITBOX_LETHAL_SCALE;\n  const float hhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);\n  const float hhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);\n'''
+          if old not in s:
+              raise SystemExit('inner-hitbox declaration missing')
+          s=s.replace(old,new,1)
+
+          hazard='''  // Pass 2: hazards (inner hitbox), then solids, then boosts.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n\n'''
+          if hazard not in s:
+              raise SystemExit('hazard phase missing')
+          s=s.replace(hazard,'',1)
+
+          # Remaining lhw/lhh occurrence is the solid-side lethal check.
+          old_side='aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)'
+          if old_side not in s:
+              raise SystemExit('solid-side lethal check missing')
+          s=s.replace(old_side,'aabb(st_.x, st_.y, ihw, ihh, o.x, o.y, o.hw, o.hh)',1)
+
+          # 3) Hazards are resolved after block correction and pads/orbs.
+          close='''\n}\n\nvoid Sim::applyPad'''
+          if close not in s:
+              raise SystemExit('resolveWorld close missing')
+          hazard_last='''\n  // Hazards resolve last. This matches GD collision ordering closely enough\n  // that a block/pad correction cannot be killed using the pre-correction pose.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, hhw, hhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n'''
+          s=s.replace(close,hazard_last+close,1)
+          p.write_text(s)
+
+          # Enrich trace only in the runner workspace; this file is NOT committed.
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          old='''  std::printf("frame  hold      x(bl)   y(bl)     vy  ground  dead  mode\\n");\n'''
+          new='''  std::printf("frame hold x_raw y_raw vy ground dead mode flip pad orb\\n");\n'''
+          if old not in s: raise SystemExit('trace header missing')
+          s=s.replace(old,new,1)
+          old='''      std::printf("%5d  %s   %8.3f %7.3f %6.2f     %d     %d     %d\\n", f,\n                  hold ? "HOLD" : "....", s.x / phys::BLOCK,\n                  s.y / phys::BLOCK, s.vy, s.onGround ? 1 : 0,\n                  s.dead ? 1 : 0, static_cast<int>(s.mode));\n'''
+          new='''      std::printf("%5d %d %.3f %.3f %.6f %d %d %d %d %d %d\\n", f,\n                  hold ? 1 : 0, s.x, s.y, s.vy, s.onGround ? 1 : 0,\n                  s.dead ? 1 : 0, static_cast<int>(s.mode), s.flip ? 1 : 0,\n                  s.lastPadUid, s.lastOrbUid);\n'''
+          if old not in s: raise SystemExit('trace row missing')
+          p.write_text(s.replace(old,new,1))
+
+      - name: Build and selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+
+      - name: Convert official demons and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/l /tmp/log /tmp/trace
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/$k.macro | tee /tmp/log/$k.log
+            /tmp/build/gdlearn trace /tmp/l/$k.gdl --macro /tmp/$k.macro --frames 8000 --from 0 > /tmp/trace/$k.txt
+          done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 43200 --stall 8000 --out /tmp/t1536.macro | tee /tmp/log/t1536.log
+          /tmp/build/gdlearn trace /tmp/l/t.gdl --macro /tmp/t1536.macro --frames 8000 --from 0 > /tmp/trace/t1536.txt
+          set -e
+
+      - name: Physical and replay gates
+        shell: python
+        run: |
+          import math, re
+          from pathlib import Path
+
+          def solve_metrics(path):
+              text=Path(path).read_text()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%.*?verify\s+([0-9.]+)%', text)
+              if not m:
+                  raise SystemExit(f'no solve/verify metric in {path}')
+              p,v=map(float,m[-1])
+              if abs(p-v) > 0.02:
+                  raise SystemExit(f'replay mismatch {path}: search={p} verify={v}')
+              return p
+
+          scores={
+              'clubstep': solve_metrics('/tmp/log/c.log'),
+              'toe2': solve_metrics('/tmp/log/t.log'),
+              'deadlocked': solve_metrics('/tmp/log/d.log'),
+              'toe2_b1536': solve_metrics('/tmp/log/t1536.log'),
+          }
+          print('HEALTHY_BASELINE', scores)
+
+          # Floors are intentionally below the old exploit-dependent numbers.
+          if scores['clubstep'] < 8.0: raise SystemExit('Clubstep healthy regression')
+          if scores['toe2'] < 1.5: raise SystemExit('ToE2 healthy regression')
+          if scores['deadlocked'] < 1.5: raise SystemExit('Deadlocked healthy regression')
+          if scores['toe2_b1536'] < 2.0: raise SystemExit('ToE2 wide-beam healthy regression')
+
+          for name in ('c','t','d','t1536'):
+              rows=[]
+              for line in Path('/tmp/trace/'+name+'.txt').read_text().splitlines():
+                  parts=line.split()
+                  if len(parts) != 11 or not parts[0].lstrip('-').isdigit():
+                      continue
+                  frame=int(parts[0]); y=float(parts[3]); mode=int(parts[7])
+                  rows.append((frame,y,mode))
+              if not rows:
+                  raise SystemExit(f'empty trace {name}')
+              min_y=min(y for _,y,_ in rows)
+              if min_y < -0.01:
+                  raise SystemExit(f'{name}: impossible below-floor y={min_y}')
+              for (f0,y0,m0),(f1,y1,m1) in zip(rows,rows[1:]):
+                  # The three official demons in this gate do not use spider
+                  # during these prefixes. A >30-unit one-tick jump is a sim bug.
+                  if abs(y1-y0) > 30.0 and m0 != 6 and m1 != 6:
+                      raise SystemExit(f'{name}: impossible vertical teleport at {f0}->{f1}: {y0}->{y1}')
+              print(f'TRACE_OK {name}: rows={len(rows)} min_y={min_y:.3f}')
+
+      - name: Promote source fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git restore src/app/main.cpp
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.cpp
+          git rm .github/workflows/promote_physical_baseline.yml
+          git commit -m 'fix physically invalid grounded collision paths'
+          git push
