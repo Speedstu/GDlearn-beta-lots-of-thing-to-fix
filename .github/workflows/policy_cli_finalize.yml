@@ -1,0 +1,89 @@
+name: one-shot policy cli finalizer
+on:
+  push:
+    branches: [agent/gdlearn2-replace]
+    paths: [.github/workflows/policy_cli_finalize.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Wire policy inference into CLI
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/app/main.cpp')
+          s = p.read_text()
+
+          old = '#include "rl/ppo.hpp"\n#include "search/beam.hpp"\n'
+          new = '#include "rl/ppo.hpp"\n#include "rl/policy_runner.hpp"\n#include "search/beam.hpp"\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''    std::printf("usage: gdlearn solve <level.gdl> [--beam N] [--out macro]\\n");'''
+          new = '''    std::printf("usage: gdlearn solve <level.gdl> [--beam N] [--policy run-dir] "\n                "[--prior-weight X] [--out macro]\\n");'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''  o.stallFrames = a.num("stall", phys::ticks(8.0f));\n  o.verbose = true;\n\n  const auto t0 = std::chrono::steady_clock::now();\n'''
+          new = '''  o.stallFrames = a.num("stall", phys::ticks(8.0f));\n  o.verbose = true;\n\n  PolicyRunner guide;\n  if (a.has("policy")) {\n    std::string err;\n    const std::string dir = a.str("policy");\n    if (!guide.load(dir, &err)) {\n      std::printf("cannot load policy prior from %s: %s\\n", dir.c_str(), err.c_str());\n      return 2;\n    }\n    o.priorWeight = a.real("prior-weight", 8.0f);\n    o.priorBatch = [&guide, &lv](const std::vector<State>& states,\n                                 std::vector<float>* pHold) {\n      guide.probabilities(lv, states, pHold);\n    };\n    std::printf("guided by %s (%s), prior weight %.2f\\n", dir.c_str(),\n                guide.schemaMagic().c_str(), o.priorWeight);\n  }\n\n  const auto t0 = std::chrono::steady_clock::now();\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          start = s.index('int cmdEval(const Args& a) {')
+          end = s.index('// ---------------------------------------------------------------- distill ----', start)
+          old_eval = s[start:end]
+          new_eval = r'''int cmdEval(const Args& a) {
+  if (a.pos.size() < 2) {
+    std::printf("usage: gdlearn eval <run-dir> <level.gdl> [--out macro]\n");
+    return 2;
+  }
+  Level lv = Level::loadGdl(a.pos[1]);
+  PolicyRunner policy;
+  std::string err;
+  if (!policy.load(a.pos[0], &err)) {
+    std::printf("cannot load checkpoint from %s: %s\n", a.pos[0].c_str(),
+                err.c_str());
+    return 1;
+  }
+  PolicyRollout r = policy.evaluate(
+      lv, a.num("max-frames", phys::ticks(180.0f)));
+  std::printf("%s: %.2f%%%s  schema=%s\n", lv.name.c_str(),
+              r.progress * 100.0f, r.won ? "  COMPLETE" : "",
+              policy.schemaMagic().c_str());
+  Macro m;
+  m.level = lv.name;
+  m.progress = r.progress;
+  m.holds = r.holds;
+  const std::string out = a.str("out", a.pos[1] + ".policy.macro");
+  if (!m.save(out)) {
+    std::printf("cannot save macro -> %s\n", out.c_str());
+    return 1;
+  }
+  std::printf("macro -> %s\n", out.c_str());
+  return r.won ? 0 : 3;
+}
+
+'''
+          s = s[:start] + new_eval + s[end:]
+
+          old = '''  net.save(out + "/policy.bin");\n  norm.save(out + "/obs_norm.bin");\n  Macro m;\n'''
+          new = '''  if (!net.save(out + "/policy.bin") ||\n      !norm.save(out + "/obs_norm.bin") ||\n      !writePolicySchema(out, "gdlearn_imitation_v2", D)) {\n    std::printf("failed to save native distill checkpoint -> %s\\n", out.c_str());\n    return 1;\n  }\n  Macro m;\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+      - name: Commit and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/policy_cli_finalize.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'wire policy guidance into solve and unify evaluation'
+          git push origin HEAD:agent/gdlearn2-replace
