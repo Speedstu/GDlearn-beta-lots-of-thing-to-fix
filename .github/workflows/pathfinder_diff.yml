@@ -62,12 +62,10 @@ jobs:
       - name: Find first physical divergence
         shell: python
         run: |
-          import math
           gd={}
           for l in open('/tmp/gd.trace'):
             p=l.split()
-            if len(p)<8 or not p[0].isdigit(): continue
-            # gd trace is frame,hold,xBlocks,yBlocks,vy,...,mode,flip
+            if len(p)<9 or not p[0].isdigit(): continue
             gd[int(p[0])] = (float(p[2])*30.0,float(p[3])*30.0,float(p[4]),int(p[7]),int(p[8]))
           ref={}
           for l in open('/tmp/ref.trace'):
@@ -90,3 +88,4 @@ jobs:
             for j in range(max(0,i-8),i+9):
               if j in ref: print(j,ref[j])
           print('reference_frames',len(ref),'gd_frames',len(gd))
+# v6 rerun
