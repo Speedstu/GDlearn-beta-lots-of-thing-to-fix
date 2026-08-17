@@ -1,0 +1,31 @@
+name: v4 no global ceiling
+on: {push: {branches: [agent/gdlearn2-fidelity-v4], paths: [.github/workflows/v4_no_global_ceiling.yml]}}
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/core/sim.cpp');s=p.read_text();old='if (st_.y < phys::KILL_BELOW || st_.y > phys::CEILING_Y) st_.dead = true;';new='if (st_.y < phys::KILL_BELOW) st_.dead = true;';assert old in s;p.write_text(s.replace(old,new,1))
+      - shell: bash
+        run: |
+          set -e; cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null; cmake --build build -j"$(nproc)" >/dev/null; mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep; python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'; python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e; ./build/gdlearn solve /tmp/l/c.gdl --beam 6144 --widen 0 --max-frames 12000 --stall 6000 --out /tmp/c.macro | tee /tmp/c.log; ./build/gdlearn solve /tmp/l/t.gdl --beam 6144 --widen 0 --max-frames 12000 --stall 6000 --out /tmp/t.macro | tee /tmp/t.log; ./build/gdlearn solve /tmp/l/d.gdl --beam 6144 --widen 0 --max-frames 12000 --stall 6000 --out /tmp/d.macro | tee /tmp/d.log; set -e
+          for k in c t d; do ./build/gdlearn trace /tmp/l/$k.gdl --macro /tmp/$k.macro --frames 12000 > /tmp/$k.trace; done
+          python3 - <<'PY'
+          import re
+          for k in 'ctd':
+            ys=[]
+            for l in open('/tmp/'+k+'.trace'):
+              p=l.split()
+              if len(p)>=4 and p[0].isdigit():
+                try: ys.append(float(p[3])*30.0)
+                except: pass
+            t=open('/tmp/'+k+'.log').read();m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',t)
+            print('NO_GLOBAL',k,'progress',m[-1] if m else '?','miny',min(ys) if ys else None,'maxy',max(ys) if ys else None)
+            if ys and max(abs(min(ys)),abs(max(ys)))>10000: raise SystemExit(k+' escaped world')
+          PY
