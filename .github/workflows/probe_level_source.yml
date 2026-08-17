@@ -15,15 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe GDBrowser search and level endpoints
+      - name: Probe GDBrowser search and level-data variants
         shell: bash
         run: |
           set -euo pipefail
-          echo '--- search ---'
           curl -fsSL --max-time 20 'https://gdbrowser.com/api/search/The%20Nightmare' -o /tmp/search.json
-          wc -c /tmp/search.json
-          head -c 2000 /tmp/search.json; echo
-          echo '--- level 13519 ---'
-          curl -fsSL --max-time 20 'https://gdbrowser.com/api/level/13519' -o /tmp/level.json
-          wc -c /tmp/level.json
-          head -c 2000 /tmp/level.json; echo
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/search.json'))
+          print('search rows', len(x), 'first', x[0].get('id'), x[0].get('name'))
+          PY
+          for suffix in '' '?download' '?download=true' '?inc=data' '?data=1'; do
+            echo "--- level 13519${suffix} ---"
+            curl -fsSL --max-time 20 "https://gdbrowser.com/api/level/13519${suffix}" -o /tmp/level.json
+            python3 - <<'PY'
+          import json, os
+          p='/tmp/level.json'; x=json.load(open(p))
+          print('bytes', os.path.getsize(p), 'keys', sorted(x.keys()))
+          print('data_len', len(str(x.get('data',''))), 'data_head', str(x.get('data',''))[:80])
+          PY
+          done
