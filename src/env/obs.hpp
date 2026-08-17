@@ -1,29 +1,36 @@
 // SPDX-License-Identifier: MIT
 // Observation encoder.
 //
-// The old version fed a 20x14 absolute grid + raw pixel-ish values, which made
-// the policy relearn the same obstacle at every Y offset. Here everything is
-// expressed in GRAVITY-RELATIVE, PLAYER-RELATIVE, BLOCK-NORMALISED units, so a
-// spike is the same input whether you are upside-down in a ship or on the
-// floor as a cube. That single change is worth more than any extra layer.
+// Geometry is expressed in GRAVITY-RELATIVE, PLAYER-RELATIVE,
+// BLOCK-NORMALISED units.  The dense local grid is complemented by a compact
+// ordered object stream: a grid tells the policy "something occupies this
+// cell", while the tokens retain the exact distance/size/type information
+// needed for frame-perfect demon timing.
 #pragma once
-
-#include <vector>
 
 #include "core/sim.hpp"
 
 namespace gd {
 
 struct ObsSpec {
-  static constexpr int kCols = 16;   // blocks ahead (1 block per column)
-  static constexpr int kRows = 12;   // +-6 blocks around the player
+  static constexpr int kCols = 16;     // blocks ahead (1 block / column)
+  static constexpr int kRows = 12;     // +-6 blocks around the player
   static constexpr int kChannels = 3;  // solid / hazard / interactive
   static constexpr int kGrid = kCols * kRows * kChannels;
+
   // 12 kinematic + 8 mode one-hot + 5 speed-tier one-hot + 4 sub-block phase.
-  // Kept a little larger than what we write so adding a feature never has to
-  // overflow into the grid (the first version wrote 25 values into 24 slots).
   static constexpr int kScalars = 32;
-  static constexpr int kDim = kGrid + kScalars;
+
+  // Nearest gameplay objects ahead of / overlapping the player.  Per token:
+  //   centre dx, gravity-relative dy, leading-edge dx, half-width, half-height,
+  //   six kind one-hots (solid/hazard/pad/orb/portal/speed), sub-kind.
+  // This is deliberately small and fixed-size: no recurrent state, no heap
+  // allocation and no dependence on absolute level time/identity.
+  static constexpr int kObjectTokens = 20;
+  static constexpr int kTokenFeatures = 12;
+  static constexpr int kTokens = kObjectTokens * kTokenFeatures;
+
+  static constexpr int kDim = kGrid + kScalars + kTokens;  // 848
 };
 
 // Writes exactly ObsSpec::kDim floats into `out`.
