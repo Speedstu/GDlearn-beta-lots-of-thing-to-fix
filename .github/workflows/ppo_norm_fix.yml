@@ -28,7 +28,7 @@ jobs:
           p = Path('src/rl/ppo.cpp')
           s = p.read_text()
           old = '  norm_.observe(obsBuf_.data(), 256);\n'
-          new = ('  const int normSamples = static_cast<int>(std::min<size_t>(256, roll));\n'
+          new = ('  const int normSamples = std::min(256, nEnv * nStep);\n'
                  '  if (normSamples > 0) norm_.observe(obsBuf_.data(), normSamples);\n')
           if old not in s:
               raise SystemExit('expected unsafe norm_.observe call not found')
