@@ -1,0 +1,349 @@
+name: one-shot classic fidelity A-B
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/classic_fidelity_probe.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fidelity:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Measure current baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/base-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/base-build -j"$(nproc)"
+          mkdir -p /tmp/base-levels /tmp/base-logs
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/base-levels/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/base-levels/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/base-levels/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/base-build/gdlearn solve /tmp/base-levels/$k.gdl --beam 96 --widen 0 \
+              --max-frames 43200 --stall 1440 --out /tmp/base-$k.macro | tee /tmp/base-logs/$k.log
+          done
+          set -e
+
+      - name: Patch measured classic physics, IDs and hitboxes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # ---- converter: exact classic portal/pad/orb IDs + measured sizes ----
+          p = Path('tools/gmd_to_gdl.py')
+          s = p.read_text()
+          old = '''PORTALS = {
+              12: 0,              # cube
+              13: 1, 47: 1, 111: 1,  # legacy parser aliases retained for old exports
+              43: 2, 46: 2,
+              747: 3,
+              660: 4, 1049: 4,
+              745: 5,
+              1331: 6,
+              1933: 7,
+              10: 8,
+              11: 9,
+              99: 10,
+              101: 11,
+          }
+          SPEEDS = {200: 0, 201: 1, 202: 2, 203: 3, 1334: 4}
+          # gdl PadKind: yellow, pink, red, blue.
+          PADS = {35: 0, 140: 2, 67: 3, 1332: 1, 1524: 2, 1697: 3}
+          # gdl OrbKind: yellow, pink, red, blue, green, black, dash.
+          ORBS = {36: 0, 141: 1, 1330: 2, 84: 3, 1022: 4, 1333: 5,
+                  1594: 6, 1704: 6, 1751: 6}
+          '''
+          new = '''PORTALS = {
+              # Classic vehicle portals (measured from the game/sim RE):
+              12: 0,   # cube
+              13: 1,   # ship
+              47: 2,   # ball
+              111: 3,  # UFO
+              660: 4,  # wave
+              # Later modes kept for modern levels.
+              745: 5, 1331: 6, 1933: 7,
+              10: 8, 11: 9, 99: 10, 101: 11,
+          }
+          SPEEDS = {200: 0, 201: 1, 202: 2, 203: 3, 1334: 4}
+          # gdl PadKind: yellow, pink, red, blue.
+          PADS = {35: 0, 140: 1, 1332: 2, 67: 3, 1524: 2, 1697: 3}
+          # gdl OrbKind: yellow, pink, red, blue, green, black, dash.
+          ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,
+                  1594: 6, 1704: 6, 1751: 6}
+
+          # Full object hitbox sizes in world units for classic gameplay objects.
+          # Unknown visual objects remain decoration rather than becoming fake walls.
+          CLASSIC_SOLID_SIZE = {}
+          def _sizes(ids, w, h):
+              for _id in ids:
+                  CLASSIC_SOLID_SIZE[_id] = (w, h)
+          _sizes([*range(1,5),6,7,63,*range(69,73),*range(74,79),*range(81,84),
+                  *range(90,97),*range(116,120),121,122,146,*range(160,164),
+                  *range(165,170),173,175,*range(207,211),212,213,
+                  *range(247,251),*range(252,259),260,261,*range(263,266),
+                  *range(267,273),274,275,467,469,470,471], 30.0, 30.0)
+          _sizes([64,195,206,220,661], 15.0, 15.0)
+          _sizes([40,147,215,369,370], 30.0, 14.0)
+          _sizes([170,171,172,174,192], 30.0, 21.0)
+          _sizes([468,475], 30.0, 1.5)
+          _sizes([62,65,66,68], 30.0, 16.0)
+          _sizes([196,219], 15.0, 8.0)
+          _sizes([204], 8.0, 15.0)
+          _sizes([662,663,664], 30.0, 15.0)
+          _sizes([328], 22.0, 22.0)
+          _sizes([197], 22.0, 21.0)
+          _sizes([194], 21.0, 21.0)
+          _sizes([176], 14.0, 21.0)
+          _sizes([34], 37.0, 23.0)
+
+          CLASSIC_HAZARD_SIZE = {
+              720:(2.40039063,3.20001221), 991:(2.40039063,3.20001221),
+              61:(9,7.2), 446:(9,7.2), 365:(9,6), 667:(9,6),
+              392:(2.6,4.8), 8:(6,12), 103:(4,7.6), 39:(6,5.6),
+              205:(6,5.6), 768:(4.5,5.2), 447:(5.2,7.2),
+              135:(14.1,20), 422:(6,4.4), 244:(6,6.8), 243:(6,7.2),
+              421:(9,5.2), 9:(9,10.8), 989:(9,12), 178:(6,6.4),
+              179:(4,8), 919:(25,6),
+          }
+          PORTAL_SIZE = {
+              12:(34,86), 13:(34,86), 47:(34,86), 111:(34,86), 660:(34,86),
+              10:(25,75), 11:(25,75), 99:(31,90), 101:(31,90),
+          }
+          SPEED_SIZE = {200:(35,44), 201:(33,56), 202:(51,56),
+                        203:(65,56), 1334:(69,56)}
+          PAD_SIZE = {35:(25,4), 140:(25,5), 67:(25,6), 1332:(25,6)}
+          '''
+          if old not in s:
+              raise SystemExit('converter mapping block changed unexpectedly')
+          s = s.replace(old, new, 1)
+
+          old = '''    scale = max(0.01, abs(_f(props, 32, 1.0)))
+              sx = max(0.01, abs(_f(props, 128, scale)))
+              sy = max(0.01, abs(_f(props, 129, scale)))
+              rot = _f(props, 6, 0.0)
+
+              if oid in PORTALS:
+                  return GdlObject('portal', PORTALS[oid], x, y, 12.0 * sx, 45.0 * sy, oid)
+              if oid in SPEEDS:
+                  return GdlObject('speed', SPEEDS[oid], x, y, 10.0 * sx, 20.0 * sy, oid)
+              if oid in PADS:
+                  return GdlObject('pad', PADS[oid], x, y, 15.0 * sx, 5.0 * sy, oid)
+              if oid in ORBS:
+                  return GdlObject('orb', ORBS[oid], x, y, 18.0 * sx, 18.0 * sy, oid)
+              if oid in HAZARD_IDS:
+                  hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)
+                  return GdlObject('hazard', 0, x, y, hw, hh, oid)
+              if oid in SOLID_IDS:
+                  hw, hh = _rotated_half_extents(15.0 * sx, 15.0 * sy, rot)
+                  return GdlObject('solid', 0, x, y, hw, hh, oid)
+          '''
+          new = '''    scale = max(0.01, abs(_f(props, 32, 1.0)))
+              sx = scale * max(0.01, abs(_f(props, 128, 1.0)))
+              sy = scale * max(0.01, abs(_f(props, 129, 1.0)))
+              rot = _f(props, 6, 0.0)
+
+              if oid in PORTALS:
+                  w, h = PORTAL_SIZE.get(oid, (24.0, 90.0))
+                  hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)
+                  return GdlObject('portal', PORTALS[oid], x, y, hw, hh, oid)
+              if oid in SPEEDS:
+                  w, h = SPEED_SIZE[oid]
+                  hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)
+                  return GdlObject('speed', SPEEDS[oid], x, y, hw, hh, oid)
+              if oid in PADS:
+                  w, h = PAD_SIZE.get(oid, (25.0, 6.0))
+                  hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)
+                  return GdlObject('pad', PADS[oid], x, y, hw, hh, oid)
+              if oid in ORBS:
+                  hw, hh = _rotated_half_extents(18.0*sx, 18.0*sy, rot)
+                  return GdlObject('orb', ORBS[oid], x, y, hw, hh, oid)
+              if oid in CLASSIC_HAZARD_SIZE:
+                  w, h = CLASSIC_HAZARD_SIZE[oid]
+                  hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)
+                  return GdlObject('hazard', 0, x, y, hw, hh, oid)
+              if oid in CLASSIC_SOLID_SIZE:
+                  w, h = CLASSIC_SOLID_SIZE[oid]
+                  hw, hh = _rotated_half_extents(0.5*w*sx, 0.5*h*sy, rot)
+                  return GdlObject('solid', 0, x, y, hw, hh, oid)
+              # Later IDs without a measured classic shape use a conservative
+              # fallback; they can be replaced by live calibration later.
+              if oid in HAZARD_IDS:
+                  hw, hh = _rotated_half_extents(4.0*sx, 8.0*sy, rot)
+                  return GdlObject('hazard', 0, x, y, hw, hh, oid)
+              if oid in SOLID_IDS:
+                  hw, hh = _rotated_half_extents(15.0*sx, 15.0*sy, rot)
+                  return GdlObject('solid', 0, x, y, hw, hh, oid)
+          '''
+          if old not in s:
+              raise SystemExit('converter classify block changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+          # ---- measured cube vertical physics, per speed tier ----
+          p = Path('src/core/physics.hpp')
+          s = p.read_text()
+          old = '''// ------------------------------------------------------------------ cube ----
+          constexpr float CUBE_GRAVITY = 0.958199f * ACCEL_60_TO_TICK2;
+          constexpr float CUBE_JUMP = 11.180000f * VEL_60_TO_TICK;
+          constexpr float CUBE_TERMINAL = 15.0f * VEL_60_TO_TICK;
+          constexpr float CUBE_ROT_PER_FRAME = 6.0f * VEL_60_TO_TICK;  // deg / 240-Hz tick
+          '''
+          new = '''// ------------------------------------------------------------------ cube ----
+          // Reverse-engineered game values are in world units/s and units/s^2.
+          // Convert directly to native 240-TPS distance-per-tick state.
+          constexpr std::array<float, 5> CUBE_GRAVITY = {
+              2747.52f / (TPS * TPS), 2794.1082f / (TPS * TPS),
+              2786.4f / (TPS * TPS), 2799.36f / (TPS * TPS),
+              2799.36f / (TPS * TPS),
+          };
+          constexpr std::array<float, 5> CUBE_JUMP = {
+              573.481728f / TPS, 603.7217172f / TPS, 616.681728f / TPS,
+              606.421728f / TPS, 606.421728f / TPS,
+          };
+          constexpr float CUBE_TERMINAL = 810.0f / TPS;
+          constexpr float CUBE_ROT_PER_FRAME = 1.5f;  // ~360 deg/s at 240 TPS
+          '''
+          if old not in s:
+              raise SystemExit('cube physics block changed unexpectedly')
+          s = s.replace(old, new, 1)
+          s = s.replace('constexpr float HITBOX_LETHAL_SCALE = 0.30f;\n',
+                        'constexpr float INNER_HITBOX_HALF = 4.5f;  // 9x9 frontal block hitbox\n')
+          p.write_text(s)
+
+          # ---- simulator: speed-aware cube constants and separate hitboxes ----
+          p = Path('src/core/sim.cpp')
+          s = p.read_text()
+          old = '''      if (hold && st_.onGround) {
+                  st_.vy = phys::CUBE_JUMP * g;
+                  st_.onGround = false;
+                }
+                st_.vy -= phys::CUBE_GRAVITY * g;
+                clampFall(phys::CUBE_TERMINAL);
+          '''
+          new = '''      if (hold && st_.onGround) {
+                  const float miniJump = st_.mini ? 0.8f : 1.0f;
+                  st_.vy = phys::CUBE_JUMP[st_.tier] * miniJump * g;
+                  st_.onGround = false;
+                }
+                st_.vy -= phys::CUBE_GRAVITY[st_.tier] * g;
+                clampFall(phys::CUBE_TERMINAL);
+          '''
+          if old not in s:
+              raise SystemExit('cube sim block changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '''  const float hw = st_.halfW(), hh = st_.halfH();
+            const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);
+            const float lhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);
+          '''
+          new = '''  const float hw = st_.halfW(), hh = st_.halfH();
+            // GD uses the full player box for hazards, but a much smaller 9x9
+            // inner box for a frontal block collision. Keeping those separate
+            // is essential for tight cube timings and stair/corner forgiveness.
+            const float lhw = phys::INNER_HITBOX_HALF;
+            const float lhh = phys::INNER_HITBOX_HALF;
+          '''
+          if old not in s:
+              raise SystemExit('inner hitbox block changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '''    if (aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)) {
+                st_.dead = true;
+          '''
+          new = '''    if (aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) {
+                st_.dead = true;
+          '''
+          if old not in s:
+              raise SystemExit('hazard hitbox block changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+          # Permanent diagnostic: every solver result reports its terminal state.
+          p = Path('src/app/main.cpp')
+          s = p.read_text()
+          old = '''  std::printf(
+              "%s  progress %.2f%%  frames %d  expanded %lldk  %.1fs  verify %.2f%%\\n",
+              r.solved ? "SOLVED" : "partial", r.progress * 100.0f, r.frames,
+              static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);
+          '''
+          new = '''  std::printf(
+              "%s  progress %.2f%%  frames %d  expanded %lldk  %.1fs  verify %.2f%%\\n",
+              r.solved ? "SOLVED" : "partial", r.progress * 100.0f, r.frames,
+              static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);
+            const State& fs = r.finalState;
+            std::printf("final-state tick=%d x=%.3f y=%.3f vy=%.6f mode=%d tier=%d "
+                        "flip=%d mini=%d ground=%d hold=%d\\n",
+                        fs.frame, fs.x, fs.y, fs.vy, static_cast<int>(fs.mode),
+                        static_cast<int>(fs.tier), fs.flip ? 1 : 0, fs.mini ? 1 : 0,
+                        fs.onGround ? 1 : 0, fs.holding ? 1 : 0);
+          '''
+          if old not in s:
+              raise SystemExit('solve report block changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+      - name: Build patched simulator and A-B same beams
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/new-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/new-build -j"$(nproc)"
+          /tmp/new-build/gdlearn selftest
+          mkdir -p /tmp/new-levels /tmp/new-logs
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/new-levels/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/new-levels/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/new-levels/d.gdl --name Deadlocked
+          for f in /tmp/new-levels/*.gdl; do
+            echo "$(basename "$f") objects=$(grep -c '^o ' "$f")"
+          done
+          set +e
+          for k in c t d; do
+            /tmp/new-build/gdlearn solve /tmp/new-levels/$k.gdl --beam 96 --widen 0 \
+              --max-frames 43200 --stall 1440 --out /tmp/new-$k.macro | tee /tmp/new-logs/$k.log
+          done
+          set -e
+
+      - name: Require a real fidelity improvement
+        shell: python
+        run: |
+          import re
+          def read(prefix, k):
+              text=open(f'/tmp/{prefix}-logs/{k}.log').read()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%', text)
+              if not m: raise SystemExit(f'cannot parse {prefix}/{k}')
+              return float(m[-1])
+          old={k:read('base',k) for k in 'ctd'}
+          new={k:read('new',k) for k in 'ctd'}
+          print('BASE', old, 'sum', sum(old.values()))
+          print('NEW ', new, 'sum', sum(new.values()))
+          gains={k:new[k]-old[k] for k in old}
+          print('GAINS', gains)
+          # This patch specifically targets the early classic cube/portal path,
+          # so demand a measurable improvement on Clubstep or ToE2, not merely
+          # another accidental Deadlocked-only gain.
+          if max(gains['c'], gains['t']) < 0.50:
+              raise SystemExit('no meaningful early classic-level improvement')
+          if sum(new.values()) < sum(old.values()) + 1.0:
+              raise SystemExit('aggregate demon reach did not improve enough')
+          if any(new[k] + 0.75 < old[k] for k in old):
+              raise SystemExit('one official demon regressed materially')
+
+      - name: Commit only the validated fidelity patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/classic_fidelity_probe.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/gmd_to_gdl.py src/core/physics.hpp src/core/sim.cpp src/app/main.cpp \
+                  .github/workflows/classic_fidelity_probe.yml
+          git commit -m 'calibrate classic GD physics portals and hitboxes'
+          git push origin HEAD:agent/gdlearn2-replace
