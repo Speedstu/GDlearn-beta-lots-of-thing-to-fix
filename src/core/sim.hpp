@@ -2,12 +2,12 @@
 // Deterministic Geometry Dash physics simulator.
 //
 // Design rules that make this usable for BOTH reinforcement learning and
-// exact tree search (the old codebase could do neither cleanly):
+// exact tree search:
 //   1. `State` is a trivially-copyable POD. Snapshot / restore is a memcpy,
-//      so beam search can fork thousands of timelines per frame.
+//      so beam search can fork thousands of timelines per native tick.
 //   2. Zero allocation and zero mutation of the Level inside step().
 //   3. Every trigger is idempotent OR guarded by a uid stored in the State,
-//      so replaying the same input sequence always gives the same result.
+//      so replaying the same 240-TPS input sequence is deterministic.
 #pragma once
 
 #include <cstdint>
@@ -23,14 +23,14 @@ struct State {
   float vy = 0;
   float rotation = 0;
   float speed = phys::SPEEDS[1];
-  int32_t frame = 0;
-  int32_t lastOrbUid = -1;   // orb consumed most recently (once per contact)
+  int32_t frame = 0;            // native physics tick (legacy field name)
+  int32_t lastOrbUid = -1;
   int32_t lastPadUid = -1;
-  uint16_t holdFrames = 0;   // frames the button has been held
-  uint16_t jumpHold = 0;     // robot variable-jump window counter
+  uint16_t holdFrames = 0;      // native ticks button has been held
+  uint16_t jumpHold = 0;
   Mode mode = Mode::Cube;
-  uint8_t tier = 1;          // speed tier index
-  bool flip = false;         // gravity points up
+  uint8_t tier = 1;
+  bool flip = false;
   bool mini = false;
   bool onGround = true;
   bool holding = false;
@@ -56,12 +56,10 @@ class Sim {
   void reset();
   void restore(const State& s) { st_ = s; }
   const State& state() const { return st_; }
-  // Local flight ceiling at the player position, recomputed every frame.
   float ceiling() const { return lastCeiling_; }
   State& mutableState() { return st_; }
 
-  // Advance exactly one 60Hz gameplay frame. Returns false once the attempt
-  // is over (death, finish, or timeout).
+  // Advance exactly one native Geometry Dash physics tick (240 TPS).
   bool step(bool hold);
 
   inline bool alive() const { return !st_.dead && !st_.won; }
@@ -71,7 +69,6 @@ class Sim {
     return p < 0 ? 0 : (p > 1 ? 1 : p);
   }
 
-  // Cheap world queries, used by the observation encoder.
   bool solidAt(float x, float y) const;
   bool hazardAt(float x, float y) const;
   const Object* interactiveAt(float x, float y) const;
