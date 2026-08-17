@@ -310,7 +310,7 @@ bool Ppo::loadCheckpoint(const std::string& dir) {
   if (!meta) return false;
   std::string magic;
   std::getline(meta, magic);
-  if (magic != "gdlearn_policy_v2") return false;
+  if (magic != "gdlearn_policy_v2" && magic != "gdlearn_imitation_v2") return false;
   int tps = -1, dim = -1;
   std::string key;
   while (meta >> key) {
