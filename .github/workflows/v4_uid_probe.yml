@@ -1,0 +1,17 @@
+name: v4 uid probe
+on: {push: {branches: [agent/gdlearn2-fidelity-v4], paths: [.github/workflows/v4_uid_probe.yml]}}
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/search/beam.cpp');s=p.read_text();s=s.replace('    seen.reserve(cur.size() * 4);\n','    seen.reserve(cur.size() * 4);\n    std::unordered_map<int,int> dc;\n',1);s=s.replace('        if (ns.dead) continue;\n','        if (ns.dead) { ++dc[sim.deathUid()]; continue; }\n',1);s=s.replace('    if (cands.empty()) break;\n','''    if (cands.empty()) { std::printf("ALLDEAD tick=%d progress=%.3f",frame,record*100.0f); const auto& os=level.objects(); for(auto&z:dc){int u=z.first;if(u>=0&&u<(int)os.size()){auto&o=os[(size_t)u];std::printf(" | uid%d id%d k%d s%d x%.1f y%.1f hw%.1f hh%.1f n%d",u,(int)o.id,(int)o.kind,(int)o.sub,o.x,o.y,o.hw,o.hh,z.second);}else std::printf(" | nonobj%d n%d",u,z.second);} std::printf("\\n"); break; }\n''',1);p.write_text(s)
+      - shell: bash
+        run: |
+          set -e; cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null; cmake --build build -j"$(nproc)" >/dev/null; mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep; python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'; python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e; ./build/gdlearn solve /tmp/l/c.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/c.macro; ./build/gdlearn solve /tmp/l/t.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/t.macro; ./build/gdlearn solve /tmp/l/d.gdl --beam 6144 --widen 0 --max-frames 10000 --stall 5000 --out /tmp/d.macro; exit 0
