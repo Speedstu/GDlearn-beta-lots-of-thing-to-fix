@@ -1,0 +1,32 @@
+name: toe2 terminal state debug
+on:
+  push:
+    branches: [agent/gdlearn2-bluefix-test]
+    paths: [.github/workflows/toe2_state_debug.yml]
+permissions:
+  contents: read
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add terminal-state diagnostic
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          needle='''  std::printf(\n      "%s  progress %.2f%%  frames %d  expanded %lldk  %.1fs  verify %.2f%%\\n",\n      r.solved ? "SOLVED" : "partial", r.progress * 100.0f, r.frames,\n      static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);\n'''
+          repl=needle+'''  std::printf("FINAL x=%.6f y=%.6f vy=%.6f frame=%d mode=%d tier=%d flip=%d mini=%d ground=%d dead=%d won=%d hold=%d\\n",\n      r.finalState.x, r.finalState.y, r.finalState.vy, r.finalState.frame,\n      static_cast<int>(r.finalState.mode), static_cast<int>(r.finalState.tier),\n      static_cast<int>(r.finalState.flip), static_cast<int>(r.finalState.mini),\n      static_cast<int>(r.finalState.onGround), static_cast<int>(r.finalState.dead),\n      static_cast<int>(r.finalState.won), static_cast<int>(r.finalState.holding));\n'''
+          if needle not in s: raise SystemExit('printf anchor missing')
+          p.write_text(s.replace(needle,repl,1))
+      - name: Build and solve ToE2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/t.gdl --name 'Theory of Everything 2'
+          set +e
+          /tmp/build/gdlearn solve /tmp/t.gdl --beam 1536 --widen 0 --max-frames 16000 --stall 4000 --out /tmp/t.macro
+          set -e
