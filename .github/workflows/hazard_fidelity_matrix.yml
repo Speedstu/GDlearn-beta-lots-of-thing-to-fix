@@ -1,0 +1,100 @@
+name: exact hazard fidelity matrix
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-replace
+    paths:
+      - .github/workflows/hazard_fidelity_matrix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  variant:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [sizes, sizes_scale]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply isolated converter variant
+        shell: python
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          p=Path('tools/gmd_to_gdl.py')
+          s=p.read_text()
+          anchor="""ORBS = {36: 0, 141: 1, 1333: 2, 84: 3, 1022: 4, 1330: 5,\n        1594: 6, 1704: 6, 1751: 6}\n"""
+          table="""
+
+          # Reverse-engineered full hazard hitbox sizes (world units) for the
+          # classic object families used by the bundled official demons.
+          CLASSIC_HAZARD_SIZE = {
+              720:(2.40039063,3.20001221), 991:(2.40039063,3.20001221),
+              61:(9.0,7.2), 446:(9.0,7.2), 365:(9.0,6.0), 667:(9.0,6.0),
+              392:(2.6,4.8), 8:(6.0,12.0), 103:(4.0,7.6), 39:(6.0,5.6),
+              205:(6.0,5.6), 768:(4.5,5.2), 447:(5.2,7.2),
+              135:(14.1,20.0), 422:(6.0,4.4), 244:(6.0,6.8),
+              243:(6.0,7.2), 421:(9.0,5.2), 9:(9.0,10.8),
+              989:(9.0,12.0), 178:(6.0,6.4), 179:(4.0,8.0), 919:(25.0,6.0),
+          }
+"""
+          if anchor not in s: raise SystemExit('mapping anchor not found')
+          s=s.replace(anchor,anchor+table,1)
+
+          old="""    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n"""
+          new="""    if oid in CLASSIC_HAZARD_SIZE:\n        w, h = CLASSIC_HAZARD_SIZE[oid]\n        hw, hh = _rotated_half_extents(0.5 * w * sx, 0.5 * h * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n    if oid in HAZARD_IDS:\n        hw, hh = _rotated_half_extents(4.0 * sx, 8.0 * sy, rot)\n        return GdlObject('hazard', 0, x, y, hw, hh, oid)\n"""
+          if old not in s: raise SystemExit('hazard classify block not found')
+          s=s.replace(old,new,1)
+
+          if os.environ['VARIANT']=='sizes_scale':
+              old="""    scale = max(0.01, abs(_f(props, 32, 1.0)))\n    sx = max(0.01, abs(_f(props, 128, scale)))\n    sy = max(0.01, abs(_f(props, 129, scale)))\n"""
+              new="""    scale = max(0.01, abs(_f(props, 32, 1.0)))\n    sx = scale * max(0.01, abs(_f(props, 128, 1.0)))\n    sy = scale * max(0.01, abs(_f(props, 129, 1.0)))\n"""
+              if old not in s: raise SystemExit('scale block not found')
+              s=s.replace(old,new,1)
+          p.write_text(s)
+
+      - name: Build and probe same three official demons
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 \
+              --max-frames 43200 --stall 1440 --out /tmp/$k.macro | tee /tmp/log/$k.log
+          done
+          set -e
+          python3 - <<'PY'
+          import json,os,re
+          baseline={'c':6.00,'t':1.61,'d':6.41}
+          r={'variant':os.environ['VARIANT']}
+          for k in baseline:
+              txt=open('/tmp/log/'+k+'.log').read()
+              m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',txt)
+              r[k]=float(m[-1]) if m else -1
+          r['sum']=sum(r[k] for k in baseline)
+          r['baseline_sum']=sum(baseline.values())
+          print('HAZARD_RESULT='+json.dumps(r,sort_keys=True))
+          open('/tmp/result.json','w').write(json.dumps(r,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hazard-${{ matrix.variant }}-${{ github.run_id }}
+          path: /tmp/result.json
+          retention-days: 2
