@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Download real Geometry Dash levels from the servers and convert them to .gdl.
+"""Download real Geometry Dash levels from the live servers and convert to .gdl.
 
-Run this on a machine with internet access (your PC). It talks to the same
-endpoints the game uses, so it can pull any online level, including the famous
-extreme demons that are not shipped with the game.
+Uses the current 2.2 transport shape: HTTPS, the 2.2 gd cookie/Host headers,
+gameVersion 22 and binaryVersion 42.  This matters on hosted CI runners: the
+old 2.1 HTTP shape is routinely rejected before the request reaches the game
+endpoint.
 
+Examples:
   python tools/fetch_gd_level.py --search "Bloodbath"
   python tools/fetch_gd_level.py --id 10565740 --out levels_real
   python tools/fetch_gd_level.py --pack demons --out levels_real
-
-Searching by name is the reliable route: level IDs get misremembered, the
-server does not.
 """
 import argparse
 import os
@@ -21,12 +20,11 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gmd_to_gdl import convert, try_decompress  # noqa: E402
 
-BASE = "http://www.boomlings.com/database"
+BASE = "https://www.boomlings.com/database"
 SECRET = "Wmfd2893gb7"
+GAME_VERSION = "22"
+BINARY_VERSION = "42"
 
-# Curated shortlist for --pack. These are looked up BY NAME through the search
-# endpoint, never by a hardcoded ID, so a rename or a bad memory cannot point
-# the trainer at the wrong level.
 PACKS = {
     "demons": [
         "Bloodbath", "Cataclysm", "Sonic Wave", "Yatagarasu",
@@ -41,11 +39,14 @@ PACKS = {
 
 
 def post(endpoint, params):
-    """GD servers reject requests carrying a normal browser User-Agent."""
-    data = "&".join(f"{k}={v}" for k, v in params.items()).encode()
-    req = urllib.request.Request(f"{BASE}/{endpoint}", data=data)
+    """POST like a current 2.2 client, without a browser User-Agent."""
+    data = urllib.parse.urlencode(params).encode("ascii")
+    req = urllib.request.Request(f"{BASE}/{endpoint}", data=data, method="POST")
     req.add_header("User-Agent", "")
+    req.add_header("Accept", "*/*")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    req.add_header("Cookie", "gd=1;")
+    req.add_header("Host", "www.boomlings.com")
     with urllib.request.urlopen(req, timeout=30) as fh:
         return fh.read().decode("utf-8", "ignore")
 
@@ -58,8 +59,12 @@ def parse_kv(chunk, sep=":"):
 
 def search(name, page=0):
     body = post("getGJLevels21.php", {
-        "secret": SECRET, "type": "0", "str": urllib.parse.quote(name),
-        "page": str(page), "gameVersion": "22", "binaryVersion": "35",
+        "secret": SECRET,
+        "type": "0",
+        "str": name,
+        "page": str(page),
+        "gameVersion": GAME_VERSION,
+        "binaryVersion": BINARY_VERSION,
     })
     if not body or body.strip() == "-1":
         return []
@@ -70,7 +75,8 @@ def search(name, page=0):
         if "1" not in kv:
             continue
         out.append({
-            "id": kv.get("1", ""), "name": kv.get("2", ""),
+            "id": kv.get("1", ""),
+            "name": kv.get("2", ""),
             "downloads": int(kv.get("10", 0) or 0),
             "likes": int(kv.get("14", 0) or 0),
             "demon": kv.get("17", "") == "1",
@@ -80,8 +86,14 @@ def search(name, page=0):
 
 
 def download(level_id):
-    body = post("downloadGJLevel22.php",
-                {"secret": SECRET, "levelID": str(level_id)})
+    # downloadGJLevel22 only needs levelID + common secret for public levels.
+    # Version fields are harmless and keep the request shape explicit/current.
+    body = post("downloadGJLevel22.php", {
+        "secret": SECRET,
+        "levelID": str(level_id),
+        "gameVersion": GAME_VERSION,
+        "binaryVersion": BINARY_VERSION,
+    })
     if not body or body.strip() == "-1":
         raise RuntimeError(f"server refused level {level_id} (deleted, or rate limited)")
     kv = parse_kv(body.split("#")[0])
@@ -99,7 +111,7 @@ def save(level_id, name, level_string, out_dir):
     text, count = convert(level_string, name)
     os.makedirs(out_dir, exist_ok=True)
     dst = os.path.join(out_dir, f"{level_id}.gdl")
-    with open(dst, "w") as fh:
+    with open(dst, "w", encoding="utf-8") as fh:
         fh.write(text)
     print(f"  {name!r} (id {level_id}) -> {dst}  ({count} gameplay objects)")
     return dst
@@ -111,7 +123,6 @@ def best_match(name):
         return None
     exact = [h for h in hits if h["name"].strip().lower() == name.strip().lower()]
     pool = exact or hits
-    # Most downloaded wins: the famous level always dwarfs its copies.
     return max(pool, key=lambda h: h["downloads"])
 
 
@@ -146,6 +157,8 @@ def main():
                 print(f"  {name}: no match on the servers")
                 fail += 1
                 continue
+            print(f"  resolved {name!r} -> {hit['name']!r} id {hit['id']} "
+                  f"({hit['downloads']} downloads)")
             ids.append(hit["id"])
         except Exception as exc:
             print(f"  {name}: search failed ({exc})")
