@@ -44,15 +44,35 @@ jobs:
 
           test "$B64_BYTES" -eq 130384
           test "$ZIP_BYTES" -gt 90000
-          unzip -t /tmp/gdlearn2_bootstrap.zip
 
-      - name: Replace legacy project with reconstructed gdlearn2
+      - name: Salvage validated gdlearn2 source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/raw_levels /tmp/newsrc
           cp -a levels/. /tmp/raw_levels/
+
+          # The historical payload has exactly one corrupt member:
+          # tools/gmd_to_gdl.py. unzip still extracts the other valid members.
+          set +e
           unzip -q /tmp/gdlearn2_bootstrap.zip -d /tmp/newsrc
+          UNZIP_RC=$?
+          set -e
+          printf 'unzip_rc=%s\n' "$UNZIP_RC" | tee -a /tmp/bootstrap_diag.txt
+
+          test -s /tmp/newsrc/CMakeLists.txt
+          test -s /tmp/newsrc/src/core/sim.cpp
+          test -s /tmp/newsrc/src/core/physics.hpp
+          test -s /tmp/newsrc/src/env/obs.cpp
+          test -s /tmp/newsrc/src/search/beam.cpp
+          test -s /tmp/newsrc/src/rl/ppo.cpp
+          test -s /tmp/newsrc/src/rl/curriculum.cpp
+          test -s /tmp/newsrc/src/app/main.cpp
+          test -s /tmp/newsrc/tools/fetch_gd_level.py
+          test -s /tmp/newsrc/levels/d0_s0.gdl
+          test -s /tmp/newsrc/macros/1.macro
+
+          rm -f /tmp/newsrc/tools/gmd_to_gdl.py
 
           find . -mindepth 1 -maxdepth 1 \
             ! -name .git \
@@ -72,5 +92,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'bootstrap gdlearn2 source from validated payload'
+          git commit -m 'bootstrap gdlearn2 source from salvaged payload'
           git push origin HEAD:agent/gdlearn2-replace
