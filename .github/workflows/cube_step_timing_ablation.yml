@@ -1,0 +1,87 @@
+name: cube tick timing fidelity ablation
+
+on:
+  push:
+    branches:
+      - agent/gdlearn2-final
+    paths:
+      - .github/workflows/cube_step_timing_ablation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ablate:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - legacy_poststep
+          - factual_poststep
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply reference-like cube tick timing
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          mode=os.environ['MODE']
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+
+          old='''  const float prevY = st_.y;\n  applyMotion(press, hold);\n  st_.x += st_.speed * phys::DT;\n  resolveWorld(prevY);\n'''
+          new='''  const float prevY = st_.y;\n  if (st_.mode == Mode::Cube) {\n    // GD moves using the velocity from the previous tick, resolves contacts,\n    // then updates cube jump/gravity for the next tick.\n    const int padBefore = st_.lastPadUid;\n    const int orbBefore = st_.lastOrbUid;\n    st_.y += st_.vy;\n    st_.x += st_.speed * phys::DT;\n    resolveWorld(prevY);\n    if (alive()) {\n      const bool velocityOverride =\n          st_.lastPadUid != padBefore || st_.lastOrbUid != orbBefore;\n      if (!velocityOverride) {\n        const float g = st_.gdir();\n        if (st_.onGround) {\n          if (hold) {\n            st_.vy = phys::CUBE_JUMP * g;\n            st_.onGround = false;\n          } else {\n            st_.vy = 0.0f;\n          }\n        } else {\n          st_.vy -= phys::CUBE_GRAVITY * g;\n          if (st_.vy * g < -phys::CUBE_TERMINAL)\n            st_.vy = -phys::CUBE_TERMINAL * g;\n        }\n      }\n    }\n  } else {\n    applyMotion(press, hold);\n    st_.x += st_.speed * phys::DT;\n    resolveWorld(prevY);\n  }\n'''
+          if old not in s: raise SystemExit('step anchor missing')
+          s=s.replace(old,new,1)
+
+          # True 9x9 inner block box, while retaining the proven legacy hazard box.
+          old='''  const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);\n  const float lhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);\n'''
+          new='''  const float ihw = hw * phys::HITBOX_LETHAL_SCALE;\n  const float ihh = hh * phys::HITBOX_LETHAL_SCALE;\n  const float hhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);\n  const float hhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);\n'''
+          if old not in s: raise SystemExit('hitbox anchor missing')
+          s=s.replace(old,new,1)
+          s=s.replace('aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)',
+                      'aabb(st_.x, st_.y, hhw, hhh, o.x, o.y, o.hw, o.hh)',1)
+          s=s.replace('aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh)',
+                      'aabb(st_.x, st_.y, ihw, ihh, o.x, o.y, o.hw, o.hh)',1)
+
+          # Reference phase order: interactives -> blocks -> hazards.
+          hazard='''  // Pass 2: hazards (inner hitbox), then solids, then boosts.\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, hhw, hhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n\n'''
+          effects='''  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind == Kind::Pad) {\n      if (o.uid != st_.lastPadUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyPad(o);\n    } else if (o.kind == Kind::Orb) {\n      if (st_.holding && st_.holdFrames == 1 && o.uid != st_.lastOrbUid &&\n          aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh))\n        applyOrb(o);\n    }\n  }\n'''
+          if hazard not in s or effects not in s: raise SystemExit('phase anchors missing')
+          s=s.replace(hazard,'',1).replace(effects,'',1)
+          block_anchor='''  bool landed = false;\n'''
+          if block_anchor not in s: raise SystemExit('block anchor missing')
+          s=s.replace(block_anchor,effects+'\n'+block_anchor,1)
+          close='''\n}\n\nvoid Sim::applyPad'''
+          hazard_last='''\n  for (int i = 0; i < n; ++i) {\n    const Object& o = objs[idx[i]];\n    if (o.kind != Kind::Hazard) continue;\n    if (aabb(st_.x, st_.y, hhw, hhh, o.x, o.y, o.hw, o.hh)) {\n      st_.dead = true;\n      return;\n    }\n  }\n'''
+          if close not in s: raise SystemExit('resolve close missing')
+          s=s.replace(close,hazard_last+close,1)
+          p.write_text(s)
+
+          if mode == 'factual_poststep':
+            p=Path('src/core/physics.hpp'); q=p.read_text()
+            old='''constexpr float CUBE_GRAVITY = 0.958199f * ACCEL_60_TO_TICK2;\nconstexpr float CUBE_JUMP = 11.180000f * VEL_60_TO_TICK;\nconstexpr float CUBE_TERMINAL = 15.0f * VEL_60_TO_TICK;\n'''
+            new='''// Classic cube 1x values measured in game, converted to 240 TPS.\nconstexpr float CUBE_GRAVITY = 2794.1082f / (TPS * TPS);\nconstexpr float CUBE_JUMP = 603.7217172f / TPS;\nconstexpr float CUBE_TERMINAL = 810.0f / TPS;\n'''
+            if old not in q: raise SystemExit('cube constants missing')
+            p.write_text(q.replace(old,new,1))
+      - name: Build and measure official demons
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build -j"$(nproc)"
+          /tmp/build/gdlearn selftest
+          mkdir -p /tmp/l
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          echo "=== MODE ${{ matrix.mode }} ==="
+          for k in c t d; do
+            /tmp/build/gdlearn solve /tmp/l/$k.gdl --beam 96 --widen 0 --max-frames 43200 --stall 3000 --out /tmp/$k.macro
+          done
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 1536 --widen 0 --max-frames 30000 --stall 6000 --out /tmp/t1536.macro
+          set -e
