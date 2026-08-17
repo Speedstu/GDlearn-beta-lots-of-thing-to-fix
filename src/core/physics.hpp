@@ -85,12 +85,12 @@ constexpr float SWING_MAX_VY = 9.0f * VEL_60_TO_TICK;
 constexpr float PAD_YELLOW = 16.10f * VEL_60_TO_TICK;
 constexpr float PAD_PINK = 10.70f * VEL_60_TO_TICK;
 constexpr float PAD_RED = 21.50f * VEL_60_TO_TICK;
-constexpr float PAD_BLUE = 12.00f * VEL_60_TO_TICK;
+constexpr float PAD_BLUE = 345.6f / TPS;  // measured cube normal-size magnitude
 
 constexpr float ORB_YELLOW = 11.18f * VEL_60_TO_TICK;
 constexpr float ORB_PINK = 8.20f * VEL_60_TO_TICK;
 constexpr float ORB_RED = 15.60f * VEL_60_TO_TICK;
-constexpr float ORB_BLUE = 11.18f * VEL_60_TO_TICK;
+constexpr float ORB_BLUE = 241.488f / TPS;  // measured cube 1x normal-size magnitude
 constexpr float ORB_GREEN = 11.18f * VEL_60_TO_TICK;
 constexpr float ORB_BLACK = -16.10f * VEL_60_TO_TICK;
 constexpr float ORB_DASH_SPEED = 9.0f * VEL_60_TO_TICK;

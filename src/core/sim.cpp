@@ -347,7 +347,7 @@ void Sim::applyPad(const Object& o) {
     case PadKind::Red: boost(phys::PAD_RED); break;
     case PadKind::Blue:
       st_.flip = !st_.flip;
-      boost(phys::PAD_BLUE);
+      boost(phys::PAD_BLUE, /*alongGravity=*/true);
       break;
   }
 }
@@ -360,7 +360,7 @@ void Sim::applyOrb(const Object& o) {
     case OrbKind::Red: boost(phys::ORB_RED); break;
     case OrbKind::Blue:
       st_.flip = !st_.flip;
-      boost(phys::ORB_BLUE);
+      boost(phys::ORB_BLUE, /*alongGravity=*/true);
       break;
     case OrbKind::Green:
       st_.flip = !st_.flip;
