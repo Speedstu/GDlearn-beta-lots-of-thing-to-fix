@@ -1,0 +1,140 @@
+name: post-cleanup blocker and slope analysis
+
+on:
+  push:
+    branches: [agent/gdlearn2-final]
+    paths: [.github/workflows/post_cleanup_analysis.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  blocker-trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: clubstep
+            gmd: 14
+            name: Clubstep
+            beam: 8192
+          - key: toe2
+            gmd: 18
+            name: Theory of Everything 2
+            beam: 32768
+          - key: deadlocked
+            gmd: 20
+            name: Deadlocked
+            beam: 32768
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build solve trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          /tmp/build/gdlearn selftest >/dev/null
+          python3 tools/gmd_to_gdl.py levels/${{ matrix.gmd }}.gmd -o /tmp/l.gdl --name '${{ matrix.name }}' --hitbox-dump /tmp/h.csv
+          set +e
+          /tmp/build/gdlearn solve /tmp/l.gdl --beam ${{ matrix.beam }} --widen 0 --max-frames 43200 --stall 20000 --out /tmp/best.macro | tee /tmp/solve.log
+          set -e
+          /tmp/build/gdlearn trace /tmp/l.gdl --macro /tmp/best.macro --frames 15000 --from 0 > /tmp/trace.log
+      - name: Resolve blocker
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+          st=Path('/tmp/solve.log').read_text()
+          m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%\s+frames\s+(\d+)',st)
+          print('SOLVE_RESULT',m[-1] if m else None)
+          rows=[]
+          pat=re.compile(r'\s*(\d+)\s+(HOLD|\.\.\.\.)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)')
+          for line in Path('/tmp/trace.log').read_text().splitlines():
+              q=pat.match(line)
+              if q:
+                  rows.append({'frame':int(q[1]),'xbl':float(q[3]),'ybl':float(q[4]),'vy':float(q[5]),'ground':int(q[6]),'dead':int(q[7]),'mode':int(q[8]),'flip':int(q[9]),'pad':int(q[10]),'orb':int(q[11]),'contact':int(q[12]),'deathuid':int(q[13])})
+          if not rows: raise SystemExit('trace parse failed')
+          dead=next((r for r in rows if r['dead']),rows[-1])
+          print('DEATH_STATE',dead)
+          objs=[x for x in Path('/tmp/l.gdl').read_text().splitlines() if x.startswith('o ')]
+          u=dead['deathuid']
+          print('DEATH_OBJECT',u, objs[u] if 0<=u<len(objs) else '<boundary/uninstrumented>')
+          x=dead['xbl']*30.0
+          print('TRACE_TAIL')
+          di=rows.index(dead)
+          for r in rows[max(0,di-20):di+1]: print(r)
+          print('NEARBY')
+          for i,o in enumerate(objs):
+              p=o.split()
+              if abs(float(p[3])-x)<=100: print(i,o)
+
+  slope-ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, no_665_666, no_681_694, no_classic_slopes]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch diagnostic slope variant
+        shell: python
+        env:
+          V: ${{ matrix.variant }}
+        run: |
+          import os
+          from pathlib import Path
+          v=os.environ['V']
+          p=Path('tools/gmd_to_gdl.py'); s=p.read_text()
+          if v=='baseline': print(v); raise SystemExit(0)
+          anchor='''    *range(681, 696),\n}\n'''
+          if anchor not in s: raise SystemExit('solid tail anchor missing')
+          extra=[]
+          if v in ('no_665_666','no_classic_slopes'): extra += [665,666]
+          if v in ('no_681_694','no_classic_slopes'): extra += list(range(681,695))
+          stmt='SOLID_IDS.difference_update({' + ','.join(map(str,extra)) + '})\n'
+          s=s.replace(anchor,anchor+stmt,1)
+          p.write_text(s)
+          print(v,extra)
+      - name: Count slope candidates build and solve
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,'tools'); import gmd_to_gdl as g
+          ids={665,666,*range(681,695)}
+          for n in (14,18,20):
+              dec=g.try_decompress(Path(f'levels/{n}.gmd').read_bytes())
+              c=Counter()
+              for seg in dec.decode('utf-8','ignore').split(';')[1:]:
+                  if ',' not in seg: continue
+                  p=g.parse_props(seg); oid=g._i(p,1,0)
+                  if oid in ids: c[oid]+=1
+              print('SLOPE_COUNTS',n,dict(sorted(c.items())))
+          PY
+          cmake -S . -B /tmp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/build -j"$(nproc)" >/dev/null
+          /tmp/build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/l /tmp/log
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/l/c.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/l/t.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/l/d.gdl --name Deadlocked
+          set +e
+          /tmp/build/gdlearn solve /tmp/l/c.gdl --beam 8192 --widen 0 --max-frames 43200 --stall 12000 --out /tmp/c.macro | tee /tmp/log/c.log
+          /tmp/build/gdlearn solve /tmp/l/t.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 20000 --out /tmp/t.macro | tee /tmp/log/t.log
+          /tmp/build/gdlearn solve /tmp/l/d.gdl --beam 32768 --widen 0 --max-frames 43200 --stall 20000 --out /tmp/d.macro | tee /tmp/log/d.log
+          set -e
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          def p(k):
+              x=Path('/tmp/log/'+k+'.log').read_text(); m=re.findall(r'(?:SOLVED|partial)\s+progress\s+([0-9.]+)%',x)
+              return float(m[-1]) if m else -1
+          print('RESULT',{'clubstep':p('c'),'toe2':p('t'),'deadlocked':p('d')})
+          PY
