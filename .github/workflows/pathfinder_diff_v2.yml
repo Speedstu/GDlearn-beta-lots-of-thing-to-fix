@@ -11,11 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
+
       - name: Build baseline
         run: |
           cmake -S . -B build_base -DCMAKE_BUILD_TYPE=Release
           cmake --build build_base -j2
           ./build_base/gdlearn selftest
+
       - name: Solve and diff baseline
         shell: bash
         run: |
@@ -27,12 +29,34 @@ jobs:
             --work /tmp/pf-base \
             --save-macro diagnostics/pathfinder_reference.macro \
             | tee /tmp/base.log
+
+      - name: Persist baseline immediately
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,pathlib,re
+          t=pathlib.Path('/tmp/base.log').read_text()
+          m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          tick=int(m.group(1)) if m else -1
+          pathlib.Path('diagnostics/pathfinder_ab_baseline.txt').write_text(
+              f'tested_head={os.environ.get("GITHUB_SHA","")}\n'
+              f'baseline_first_divergence={tick}\n\n'+t)
+          print('BASELINE_FIRST_DIVERGENCE',tick)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/pathfinder_reference.macro diagnostics/pathfinder_ab_baseline.txt
+          git commit -m 'record fixed-macro Pathfinder baseline' || true
+          git push
+
       - name: Apply hazard variant and build
         run: |
           python3 tools/apply_full_hazard_hitbox_v6.py
           cmake -S . -B build_var -DCMAKE_BUILD_TYPE=Release
           cmake --build build_var -j2
           ./build_var/gdlearn selftest
+
       - name: Diff variant with identical inputs
         shell: bash
         run: |
@@ -43,20 +67,20 @@ jobs:
             --work /tmp/pf-var \
             --macro diagnostics/pathfinder_reference.macro \
             | tee /tmp/variant.log
+
       - name: Persist A/B result
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import pathlib,re
+          import os,pathlib,re
           def tick(path):
               t=pathlib.Path(path).read_text()
               m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
               return int(m.group(1)) if m else -1
           b=tick('/tmp/base.log'); v=tick('/tmp/variant.log')
-          out=pathlib.Path('diagnostics/pathfinder_ab_latest.txt')
-          out.write_text(
-              f'tested_head={pathlib.os.environ.get("GITHUB_SHA","")}\n'
+          pathlib.Path('diagnostics/pathfinder_ab_latest.txt').write_text(
+              f'tested_head={os.environ.get("GITHUB_SHA","")}\n'
               f'baseline_first_divergence={b}\nvariant_first_divergence={v}\n'
               '\n===== BASELINE =====\n'+pathlib.Path('/tmp/base.log').read_text()+
               '\n===== VARIANT =====\n'+pathlib.Path('/tmp/variant.log').read_text())
@@ -64,8 +88,6 @@ jobs:
           print('VARIANT_FIRST_DIVERGENCE',v)
           PY
           git checkout -- src/core/sim.cpp
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add diagnostics/pathfinder_reference.macro diagnostics/pathfinder_ab_latest.txt
+          git add diagnostics/pathfinder_ab_latest.txt
           git commit -m 'record fixed-macro Pathfinder A/B' || true
           git push
