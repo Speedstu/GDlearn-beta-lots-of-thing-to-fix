@@ -13,6 +13,15 @@ inline bool aabb(float ax, float ay, float ahw, float ahh, float bx, float by,
   return std::fabs(ax - bx) < (ahw + bhw) && std::fabs(ay - by) < (ahh + bhh);
 }
 
+// Pathfinder Entity::intersects treats edge contact as an intersection. Keep
+// the strict helper for effects/hazards, but use this inclusive version for
+// block contact so a cube resting exactly on a surface remains grounded.
+inline bool aabbTouching(float ax, float ay, float ahw, float ahh,
+                         float bx, float by, float bhw, float bhh) {
+  return std::fabs(ax - bx) <= (ahw + bhw) &&
+         std::fabs(ay - by) <= (ahh + bhh);
+}
+
 inline bool ellipseAabb(float ax, float ay, float ahw, float ahh,
                         float ex, float ey, float rx, float ry) {
   if (rx <= 0.0f || ry <= 0.0f) return false;
@@ -334,25 +343,10 @@ void Sim::resolveWorld(const State& prev) {
     const float prevHead = prevY + hh * g;
     const bool falling = st_.vy * g <= 0.0f;
 
-    // Pathfinder's Block::collide keeps a cube attached to a support surface
-    // through a vertical `clip` tolerance of 10 world units.  The old gdlearn
-    // broad-phase required strict outer-AABB overlap, so a cube exactly resting
-    // on a block alternated grounded/airborne every native tick.
-    const bool horizontalSupport =
-        std::fabs(st_.x - o.x) <= (hw + o.hw);
-    const float supportGap = ((st_.y - hh * g) - surfaceTop) * g;
-    if (prev.onGround && falling && horizontalSupport &&
-        supportGap >= -1.0f && supportGap <= 10.0f) {
-      st_.y = surfaceTop + hh * g;
-      st_.vy = 0.0f;
-      st_.onGround = true;
-      st_.jumpHold = 0;
-      lastContactUid_ = o.uid;
-      landed = true;
-      continue;
-    }
-
-    if (!aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) continue;
+    // Geometry Dash only calls Block::collide after Object::touching succeeds.
+    // Its rectangle intersection is inclusive, so exact edge contact counts,
+    // but a block must never pull the player across a free vertical gap.
+    if (!aabbTouching(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) continue;
 
     if (diesOnTouch(st_.mode)) {
       lastContactUid_ = o.uid;
@@ -381,7 +375,7 @@ void Sim::resolveWorld(const State& prev) {
       }
       st_.y = surfaceBottom - hh * g;
       st_.vy = 0;
-    } else if (aabb(st_.x, st_.y, bhw, bhh, o.x, o.y, o.hw, o.hh)) {
+    } else if (aabbTouching(st_.x, st_.y, bhw, bhh, o.x, o.y, o.hw, o.hh)) {
       // Ran into the wall for real: that is a death in GD, not a slide.
       lastContactUid_ = o.uid;
       deathUid_ = o.uid;
