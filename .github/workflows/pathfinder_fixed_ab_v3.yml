@@ -1,81 +1,55 @@
-name: Pathfinder fixed macro AB v3
+name: Pathfinder current oracle v3
 on:
   push:
     branches: [agent/gdlearn2-physics-v6]
     paths:
       - .github/workflows/pathfinder_fixed_ab_v3.yml
       - tools/pathfinder_diff.py
-      - tools/apply_full_hazard_hitbox_v6.py
+      - src/core/sim.cpp
+      - src/core/physics.hpp
+      - src/core/slope_collision.hpp
+      - tools/gmd_to_gdl.py
+      - tools/pathfinder_geometry.py
 permissions:
   contents: write
 jobs:
-  ab:
+  oracle:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: baseline
+      - name: build and selftest
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S . -B build_base -DCMAKE_BUILD_TYPE=Release >/dev/null
-          cmake --build build_base -j2 >/dev/null
-          ./build_base/gdlearn selftest
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j2 >/dev/null
+          ./build/gdlearn selftest
+      - name: current differential
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p diagnostics
           python3 tools/pathfinder_diff.py \
-            --bin ./build_base/gdlearn \
+            --bin ./build/gdlearn \
             --beam 6144 --frames 3000 \
-            --work /tmp/pf-base \
+            --work /tmp/pf-current \
             --save-macro diagnostics/pathfinder_reference.macro \
-            | tee /tmp/base.log
+            | tee /tmp/current.log
           python3 - <<'PY'
           import os,pathlib,re
-          t=pathlib.Path('/tmp/base.log').read_text()
+          t=pathlib.Path('/tmp/current.log').read_text()
           m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
           tick=int(m.group(1)) if m else -1
-          pathlib.Path('diagnostics/pathfinder_ab_baseline.txt').write_text(
+          pathlib.Path('diagnostics/pathfinder_current.txt').write_text(
               f'tested_head={os.environ.get("GITHUB_SHA","")}\n'
-              f'baseline_first_divergence={tick}\n\n'+t)
-          print('BASELINE_FIRST_DIVERGENCE', tick)
+              f'first_divergence={tick}\n\n'+t)
+          print('CURRENT_FIRST_DIVERGENCE',tick)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add diagnostics/pathfinder_reference.macro diagnostics/pathfinder_ab_baseline.txt
-          git commit -m 'record fixed macro Pathfinder baseline v3'
-          git push
-
-      - name: variant
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/apply_full_hazard_hitbox_v6.py
-          cmake -S . -B build_var -DCMAKE_BUILD_TYPE=Release >/dev/null
-          cmake --build build_var -j2 >/dev/null
-          ./build_var/gdlearn selftest
-          python3 tools/pathfinder_diff.py \
-            --bin ./build_var/gdlearn \
-            --frames 3000 \
-            --work /tmp/pf-var \
-            --macro diagnostics/pathfinder_reference.macro \
-            | tee /tmp/variant.log
-          python3 - <<'PY'
-          import os,pathlib,re
-          def tick(p):
-              t=pathlib.Path(p).read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
-              return int(m.group(1)) if m else -1
-          b=tick('/tmp/base.log'); v=tick('/tmp/variant.log')
-          pathlib.Path('diagnostics/pathfinder_ab_latest.txt').write_text(
-              f'tested_head={os.environ.get("GITHUB_SHA","")}\n'
-              f'baseline_first_divergence={b}\nvariant_first_divergence={v}\n\n'
-              '===== BASELINE =====\n'+pathlib.Path('/tmp/base.log').read_text()+
-              '\n===== VARIANT =====\n'+pathlib.Path('/tmp/variant.log').read_text())
-          print('BASELINE_FIRST_DIVERGENCE',b)
-          print('VARIANT_FIRST_DIVERGENCE',v)
-          PY
-          git checkout -- src/core/sim.cpp
-          git add diagnostics/pathfinder_ab_latest.txt
-          git commit -m 'record fixed macro Pathfinder AB v3'
+          git add diagnostics/pathfinder_reference.macro diagnostics/pathfinder_current.txt
+          git commit -m 'record current Pathfinder oracle' || true
           git push
