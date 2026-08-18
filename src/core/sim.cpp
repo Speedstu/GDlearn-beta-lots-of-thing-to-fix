@@ -510,8 +510,21 @@ void Sim::applyPortal(const Object& o) {
     case PortalKind::ModeRobot: st_.mode = Mode::Robot; break;
     case PortalKind::ModeSpider: st_.mode = Mode::Spider; break;
     case PortalKind::ModeSwing: st_.mode = Mode::Swing; break;
-    case PortalKind::GravityNormal: st_.flip = false; break;
-    case PortalKind::GravityFlip: st_.flip = true; break;
+    case PortalKind::GravityNormal:
+      if (st_.flip) {
+        // Pathfinder GravityPortal: relative velocity becomes -v/2 while the
+        // gravity basis flips. In gdlearn's world-space vy this preserves the
+        // direction of travel and halves the magnitude.
+        st_.vy *= 0.5f;
+        st_.flip = false;
+      }
+      break;
+    case PortalKind::GravityFlip:
+      if (!st_.flip) {
+        st_.vy *= 0.5f;
+        st_.flip = true;
+      }
+      break;
     case PortalKind::SizeNormal: st_.mini = false; break;
     case PortalKind::SizeMini: st_.mini = true; break;
   }
