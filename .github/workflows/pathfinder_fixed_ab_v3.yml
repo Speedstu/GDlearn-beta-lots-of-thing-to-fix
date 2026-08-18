@@ -20,36 +20,70 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: build and selftest
+      - name: run observable oracle
         shell: bash
         run: |
-          set -euo pipefail
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
-          cmake --build build -j2 >/dev/null
-          ./build/gdlearn selftest
-      - name: current differential
-        shell: bash
-        run: |
-          set -euo pipefail
+          set +e
           mkdir -p diagnostics
-          python3 tools/pathfinder_diff.py \
-            --bin ./build/gdlearn \
-            --beam 6144 --frames 3000 \
-            --work /tmp/pf-current \
-            --save-macro diagnostics/pathfinder_reference.macro \
-            | tee /tmp/current.log
+          : > /tmp/oracle.log
+
+          echo '=== CONFIGURE ===' | tee -a /tmp/oracle.log
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >>/tmp/oracle.log 2>&1
+          CONFIGURE_RC=$?
+          echo "CONFIGURE_RC=$CONFIGURE_RC" | tee -a /tmp/oracle.log
+
+          BUILD_RC=99
+          SELFTEST_RC=99
+          DIFF_RC=99
+          if [ "$CONFIGURE_RC" -eq 0 ]; then
+            echo '=== BUILD ===' | tee -a /tmp/oracle.log
+            cmake --build build -j2 >>/tmp/oracle.log 2>&1
+            BUILD_RC=$?
+            echo "BUILD_RC=$BUILD_RC" | tee -a /tmp/oracle.log
+          fi
+
+          if [ "$BUILD_RC" -eq 0 ]; then
+            echo '=== SELFTEST ===' | tee -a /tmp/oracle.log
+            ./build/gdlearn selftest >>/tmp/oracle.log 2>&1
+            SELFTEST_RC=$?
+            echo "SELFTEST_RC=$SELFTEST_RC" | tee -a /tmp/oracle.log
+          fi
+
+          if [ "$SELFTEST_RC" -eq 0 ]; then
+            echo '=== PATHFINDER DIFF ===' | tee -a /tmp/oracle.log
+            python3 tools/pathfinder_diff.py \
+              --bin ./build/gdlearn \
+              --beam 6144 --frames 3000 \
+              --work /tmp/pf-current \
+              --save-macro diagnostics/pathfinder_reference.macro \
+              >>/tmp/oracle.log 2>&1
+            DIFF_RC=$?
+            echo "DIFF_RC=$DIFF_RC" | tee -a /tmp/oracle.log
+          fi
+
           python3 - <<'PY'
           import os,pathlib,re
-          t=pathlib.Path('/tmp/current.log').read_text()
+          t=pathlib.Path('/tmp/oracle.log').read_text()
+          def rc(name):
+              m=re.findall(rf'{name}_RC=(-?\d+)',t)
+              return int(m[-1]) if m else -999
           m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
           tick=int(m.group(1)) if m else -1
-          pathlib.Path('diagnostics/pathfinder_current.txt').write_text(
+          header=(
               f'tested_head={os.environ.get("GITHUB_SHA","")}\n'
-              f'first_divergence={tick}\n\n'+t)
-          print('CURRENT_FIRST_DIVERGENCE',tick)
+              f'configure_rc={rc("CONFIGURE")}\n'
+              f'build_rc={rc("BUILD")}\n'
+              f'selftest_rc={rc("SELFTEST")}\n'
+              f'diff_rc={rc("DIFF")}\n'
+              f'first_divergence={tick}\n\n')
+          pathlib.Path('diagnostics/pathfinder_current.txt').write_text(header+t)
+          print(header)
           PY
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add diagnostics/pathfinder_reference.macro diagnostics/pathfinder_current.txt
-          git commit -m 'record current Pathfinder oracle' || true
+          git add diagnostics/pathfinder_current.txt
+          [ -f diagnostics/pathfinder_reference.macro ] && git add diagnostics/pathfinder_reference.macro
+          git commit -m 'record observable Pathfinder oracle' || true
           git push
+          exit 0
