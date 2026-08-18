@@ -1,0 +1,5 @@
+gravity portals near x=2310..2370
+
+all gravity portals 2200..2450
+raw 1,11,2,2295,3,135,6,90
+raw 1,10,2,2415,3,255,6,-90
