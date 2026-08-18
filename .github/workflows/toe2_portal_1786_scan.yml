@@ -1,0 +1,50 @@
+name: ToE2 portal 1786 scan
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/toe2_portal_1786_scan.yml]
+permissions: {contents: write}
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          python3 - <<'PY' > diagnostics/toe2_gravity_portal_1786.txt
+          import sys
+          sys.path.insert(0,'tools')
+          import gmd_to_gdl as g
+          raw=g.try_decompress(open('levels/18.gmd','rb').read())
+          if raw is None: raise SystemExit('cannot decode gmd')
+          text=raw.decode('utf-8','ignore')
+          print('gravity portals near x=2310..2370')
+          for seg in text.split(';')[1:]:
+              if ',' not in seg: continue
+              p=g.parse_props(seg)
+              oid=g._i(p,1,0); x=g._f(p,2,0); y=g._f(p,3,0)
+              if oid not in (10,11) or not (2310 <= x <= 2370): continue
+              obj=g.classify(p)
+              print({
+                'id':oid,'x':x,'y':y,
+                'flipH':g._i(p,4,0),'flipV':g._i(p,5,0),'rot':g._f(p,6,0),
+                'scale':g._f(p,32,1),'scaleX':g._f(p,128,1),'scaleY':g._f(p,129,1),
+                'dontFade':g._i(p,64,0),'dontEnter':g._i(p,67,0),
+                'converted':None if obj is None else {'kind':obj.kind,'sub':obj.sub,'hw':obj.hw,'hh':obj.hh}
+              })
+          print('\nall gravity portals 2200..2450')
+          for seg in text.split(';')[1:]:
+              if ',' not in seg: continue
+              p=g.parse_props(seg); oid=g._i(p,1,0); x=g._f(p,2,0)
+              if oid in (10,11) and 2200 <= x <= 2450:
+                  print('raw',seg)
+          PY
+          cat diagnostics/toe2_gravity_portal_1786.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/toe2_gravity_portal_1786.txt
+          git commit -m 'record ToE2 gravity portal 1786 scan'
+          git push
