@@ -23,17 +23,22 @@ jobs:
           text=raw.decode('utf-8','ignore')
           interesting={12:'cube',13:'ship',47:'ball',111:'ufo',660:'wave',745:'robot',1331:'spider',1933:'swing',10:'grav-normal',11:'grav-flip',99:'size-normal',101:'size-mini',200:'slow',201:'normal-speed',202:'fast',203:'faster',1334:'fastest'}
           rows=[]
-          for seg in text.split(';')[1:]:
+          for seg_index,seg in enumerate(text.split(';')[1:], start=1):
               if ',' not in seg: continue
               p=g.parse_props(seg); oid=g._i(p,1,0); x=g._f(p,2,0); y=g._f(p,3,0)
               if oid in interesting and 0 <= x <= 1300:
                   obj=g.classify(p)
-                  rows.append((x,y,oid,interesting[oid],g._f(p,6,0),g._i(p,4,0),g._i(p,5,0),g._f(p,32,1),g._f(p,128,1),g._f(p,129,1),None if obj is None else (obj.kind,obj.sub,obj.hw,obj.hh)))
-          for r in sorted(rows): print(r)
+                  rows.append(dict(seg=seg_index,x=x,y=y,id=oid,name=interesting[oid],rot=g._f(p,6,0),flipH=g._i(p,4,0),flipV=g._i(p,5,0),scale=g._f(p,32,1),converted=None if obj is None else (obj.kind,obj.sub,obj.hw,obj.hh)))
+          print('RAW ORDER')
+          for r in sorted(rows,key=lambda r:r['seg']): print(r)
+          print('\nX ORDER')
+          for r in sorted(rows,key=lambda r:(r['x'],r['seg'])): print(r)
+          print('\nSAME-X 867')
+          for r in sorted([r for r in rows if abs(r['x']-867)<0.01],key=lambda r:r['seg']): print(r)
           PY
           cat diagnostics/demons_v7/deadlocked_wave_entry_scan.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add diagnostics/demons_v7/deadlocked_wave_entry_scan.txt
-          git commit -m 'record Deadlocked wave entry portal scan'
+          git commit -m 'record Deadlocked wave entry raw object order'
           git push
