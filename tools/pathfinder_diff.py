@@ -1,45 +1,87 @@
 #!/usr/bin/env python3
-"""Replay one gdlearn macro in gdlearn and Pathfinder and report first drift."""
+"""Replay one gdlearn macro in gdlearn and Pathfinder and report first drift.
+
+The tool can either solve a fresh macro or replay a caller-supplied macro.  The
+latter is essential for A/B physics tests: changing the simulator must not also
+change the action sequence being compared.
+"""
 from __future__ import annotations
 import argparse, pathlib, shutil, subprocess, sys, textwrap
 
-ROOT=pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+DEFAULT_PF_REF = '4597a9bce113eaabea65c60a9c7adc9324409457'
+
 
 def run(cmd, **kw):
-    print('+', ' '.join(map(str,cmd)), flush=True)
-    return subprocess.run(list(map(str,cmd)), check=True, **kw)
+    print('+', ' '.join(map(str, cmd)), flush=True)
+    return subprocess.run(list(map(str, cmd)), check=True, **kw)
+
 
 def main():
-    ap=argparse.ArgumentParser()
-    ap.add_argument('--bin', default=str(ROOT/'build/gdlearn'))
-    ap.add_argument('--gmd', default=str(ROOT/'levels/18.gmd'))
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--bin', default=str(ROOT / 'build/gdlearn'))
+    ap.add_argument('--gmd', default=str(ROOT / 'levels/18.gmd'))
     ap.add_argument('--name', default='Theory of Everything 2')
     ap.add_argument('--work', default='/tmp/gdlearn-pathfinder-diff')
     ap.add_argument('--beam', type=int, default=6144)
     ap.add_argument('--frames', type=int, default=3000)
-    args=ap.parse_args()
-    w=pathlib.Path(args.work); shutil.rmtree(w,ignore_errors=True); w.mkdir(parents=True)
-    gdl=w/'level.gdl'; macro=w/'policy.macro'; gdtrace=w/'gd.trace'
-    run([sys.executable,ROOT/'tools/gmd_to_gdl.py',args.gmd,'-o',gdl,'--name',args.name])
-    with open(w/'solve.log','w') as f:
-        subprocess.run(list(map(str,[args.bin,'solve',gdl,'--beam',args.beam,'--widen','0','--max-frames',args.frames,'--stall','2000','--out',macro])),stdout=f)
-    with open(gdtrace,'w') as f: run([args.bin,'trace',gdl,'--macro',macro,'--frames',args.frames],stdout=f)
+    ap.add_argument('--macro', help='replay this existing macro instead of solving a new one')
+    ap.add_argument('--save-macro', help='copy the exact macro used by this run here')
+    ap.add_argument('--pathfinder-ref', default=DEFAULT_PF_REF)
+    args = ap.parse_args()
 
-    sys.path.insert(0,str(ROOT/'tools')); import gmd_to_gdl as conv
-    dec=conv.try_decompress(pathlib.Path(args.gmd).read_bytes())
-    if not dec: raise SystemExit('cannot decode gmd')
-    (w/'level.txt').write_bytes(dec)
-    acts=[]
+    source_macro = pathlib.Path(args.macro).resolve() if args.macro else None
+    w = pathlib.Path(args.work)
+    shutil.rmtree(w, ignore_errors=True)
+    w.mkdir(parents=True)
+    gdl = w / 'level.gdl'
+    macro = w / 'policy.macro'
+    gdtrace = w / 'gd.trace'
+
+    run([sys.executable, ROOT / 'tools/gmd_to_gdl.py', args.gmd, '-o', gdl, '--name', args.name])
+    if source_macro:
+        if not source_macro.is_file():
+            raise SystemExit(f'macro not found: {source_macro}')
+        shutil.copyfile(source_macro, macro)
+        print('+ fixed macro', source_macro, '->', macro, flush=True)
+    else:
+        with open(w / 'solve.log', 'w') as f:
+            run([args.bin, 'solve', gdl, '--beam', args.beam, '--widen', '0',
+                 '--max-frames', args.frames, '--stall', '2000', '--out', macro], stdout=f)
+
+    if args.save_macro:
+        out = pathlib.Path(args.save_macro)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(macro, out)
+
+    with open(gdtrace, 'w') as f:
+        run([args.bin, 'trace', gdl, '--macro', macro, '--frames', args.frames], stdout=f)
+
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import gmd_to_gdl as conv
+    dec = conv.try_decompress(pathlib.Path(args.gmd).read_bytes())
+    if not dec:
+        raise SystemExit('cannot decode gmd')
+    (w / 'level.txt').write_bytes(dec)
+
+    acts = []
     for line in macro.read_text().splitlines():
-        p=line.split()
-        if len(p)==3 and p[0]=='r': acts += [p[1]]*int(p[2])
-    (w/'actions.txt').write_text(''.join(acts))
+        p = line.split()
+        if len(p) == 3 and p[0] == 'r':
+            acts += [p[1]] * int(p[2])
+    (w / 'actions.txt').write_text(''.join(acts))
 
-    pf=w/'pathfinder'
-    run(['git','clone','--depth','1','https://github.com/camila314/pathfinder',pf])
-    pfb=w/'pf-build'; run(['cmake','-S',pf/'gd-sim','-B',pfb,'-DCMAKE_BUILD_TYPE=Release'],stdout=subprocess.DEVNULL)
-    run(['cmake','--build',pfb,'-j2'],stdout=subprocess.DEVNULL)
-    cpp=w/'ref.cpp'; cpp.write_text(textwrap.dedent(r'''
+    pf = w / 'pathfinder'
+    run(['git', 'init', '-q', pf])
+    run(['git', '-C', pf, 'remote', 'add', 'origin', 'https://github.com/camila314/pathfinder'])
+    run(['git', '-C', pf, 'fetch', '-q', '--depth', '1', 'origin', args.pathfinder_ref])
+    run(['git', '-C', pf, 'checkout', '-q', '--detach', 'FETCH_HEAD'])
+    pfb = w / 'pf-build'
+    run(['cmake', '-S', pf / 'gd-sim', '-B', pfb, '-DCMAKE_BUILD_TYPE=Release'], stdout=subprocess.DEVNULL)
+    run(['cmake', '--build', pfb, '-j2'], stdout=subprocess.DEVNULL)
+
+    cpp = w / 'ref.cpp'
+    cpp.write_text(textwrap.dedent(r'''
         #include <Level.hpp>
         #include <fstream>
         #include <iostream>
@@ -53,34 +95,50 @@ def main():
             if(p.dead)break; }
         }
     '''))
-    refbin=w/'ref'; run(['g++','-O2','-std=c++20',cpp,'-I'+str(pf/'gd-sim/include'),pfb/'libgd-sim.a','-o',refbin])
-    reftrace=w/'ref.trace'
-    with open(reftrace,'w') as f: run([refbin,w/'level.txt',w/'actions.txt'],stdout=f)
+    refbin = w / 'ref'
+    run(['g++', '-O2', '-std=c++20', cpp, '-I' + str(pf / 'gd-sim/include'),
+         pfb / 'libgd-sim.a', '-o', refbin])
+    reftrace = w / 'ref.trace'
+    with open(reftrace, 'w') as f:
+        run([refbin, w / 'level.txt', w / 'actions.txt'], stdout=f)
 
-    gd={}
-    for l in gdtrace.read_text().splitlines():
-        p=l.split()
-        if len(p)>=9 and p[0].isdigit():
-            gd[int(p[0])] = (float(p[2])*30,float(p[3])*30,float(p[4]),int(p[7]),int(p[8]),int(p[5]),1 if p[1]=='HOLD' else 0)
-    ref={}
-    for l in reftrace.read_text().splitlines():
-        p=l.split()
-        if len(p)>=8: ref[int(p[0])]=(float(p[1]),float(p[2]),float(p[3]),int(p[4]),int(p[5]),int(p[6]),int(p[7]))
-    first=None
-    for i in sorted(set(gd)&set(ref)):
-        g=gd[i]; r=ref[i]; delta=(abs(g[0]-r[0]),abs(g[1]-r[1]),abs(g[2]-r[2]))
-        if delta[0]>.15 or delta[1]>.15 or delta[2]>.03 or g[3]!=r[3] or g[4]!=r[4]:
-            first=(i,g,r,delta); break
-    print('FIRST_DIVERGENCE',first)
+    gd = {}
+    for line in gdtrace.read_text().splitlines():
+        p = line.split()
+        if len(p) >= 9 and p[0].isdigit():
+            gd[int(p[0])] = (float(p[2]) * 30, float(p[3]) * 30, float(p[4]),
+                             int(p[7]), int(p[8]), int(p[5]), 1 if p[1] == 'HOLD' else 0)
+    ref = {}
+    for line in reftrace.read_text().splitlines():
+        p = line.split()
+        if len(p) >= 8:
+            ref[int(p[0])] = (float(p[1]), float(p[2]), float(p[3]),
+                              int(p[4]), int(p[5]), int(p[6]), int(p[7]))
+
+    first = None
+    for i in sorted(set(gd) & set(ref)):
+        g, r = gd[i], ref[i]
+        delta = (abs(g[0] - r[0]), abs(g[1] - r[1]), abs(g[2] - r[2]))
+        if delta[0] > .15 or delta[1] > .15 or delta[2] > .03 or g[3] != r[3] or g[4] != r[4]:
+            first = (i, g, r, delta)
+            break
+
+    print('PATHFINDER_REF', args.pathfinder_ref)
+    print('MACRO_SOURCE', str(source_macro) if source_macro else 'solved')
+    print('FIRST_DIVERGENCE', first)
     if first:
-        i=first[0]
+        i = first[0]
         print('GD_WINDOW x y vy mode flip ground hold action')
-        for j in range(max(0,i-8),i+9):
-            if j in gd: print(j,gd[j],acts[j] if j<len(acts) else '?')
+        for j in range(max(0, i - 8), i + 9):
+            if j in gd:
+                print(j, gd[j], acts[j] if j < len(acts) else '?')
         print('REF_WINDOW x y vy mode flip ground dead action')
-        for j in range(max(0,i-8),i+9):
-            if j in ref: print(j,ref[j],acts[j] if j<len(acts) else '?')
-    print('FRAMES',{'gd':len(gd),'pathfinder':len(ref),'actions':len(acts)})
+        for j in range(max(0, i - 8), i + 9):
+            if j in ref:
+                print(j, ref[j], acts[j] if j < len(acts) else '?')
+    print('FRAMES', {'gd': len(gd), 'pathfinder': len(ref), 'actions': len(acts)})
     return 0
 
-if __name__=='__main__': raise SystemExit(main())
+
+if __name__ == '__main__':
+    raise SystemExit(main())
