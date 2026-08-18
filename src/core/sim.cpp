@@ -388,7 +388,11 @@ void Sim::resolveWorld(const State& prev) {
       // on the outer box (my first version) made whole levels unsolvable and
       // the beam search proved it in seconds.
       const float pen = (surfaceTop - (st_.y - hh * g)) * g;
-      if (pen > 0.0f && pen <= hh) {
+      // Pathfinder only allows a top-face snap while moving toward the
+      // support surface (velocity <= 0 in gravity-relative coordinates).
+      // Without this guard a rising cube gets magnetically pulled onto the
+      // next platform a couple of ticks before reaching its apex.
+      if (falling && pen > 0.0f && pen <= hh) {
         st_.y = surfaceTop + hh * g;
         if (st_.vy * g < 0) st_.vy = 0;
         st_.onGround = true;

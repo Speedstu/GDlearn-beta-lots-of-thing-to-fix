@@ -1,0 +1,50 @@
++ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -o /tmp/pf-corner/level.gdl --name Theory of Everything 2
+/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -> /tmp/pf-corner/level.gdl: 4245 gameplay objects
++ fixed macro /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/pathfinder_reference.macro -> /tmp/pf-corner/policy.macro
++ ./build/gdlearn trace /tmp/pf-corner/level.gdl --macro /tmp/pf-corner/policy.macro --frames 3000
++ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pf-corner/pathfinder
+PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
++ cmake -S /tmp/pf-corner/pathfinder/gd-sim -B /tmp/pf-corner/pf-build -DCMAKE_BUILD_TYPE=Release
++ cmake --build /tmp/pf-corner/pf-build -j2
++ g++ -O2 -std=c++20 /tmp/pf-corner/ref.cpp -I/tmp/pf-corner/pathfinder/gd-sim/include /tmp/pf-corner/pf-build/libgd-sim.a -o /tmp/pf-corner/ref
++ /tmp/pf-corner/ref /tmp/pf-corner/level.txt /tmp/pf-corner/actions.txt
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/pathfinder_reference.macro
+FIRST_DIVERGENCE (1786, (2319.99, 187.44, -3.33, 0, 1, 0, 1), (2319.98, 187.451, -3.375, 0, 0, 0, 0), (0.009999999999763531, 0.01099999999999568, 0.04499999999999993))
+GD_WINDOW x y vy mode flip ground hold action
+1778 (2309.58, 213.51, -3.1, 0, 0, 0, 1) 1
+1779 (2310.9, 210.42000000000002, -3.14, 0, 0, 0, 1) 1
+1780 (2312.1899999999996, 207.26999999999998, -3.19, 0, 0, 0, 1) 1
+1781 (2313.48, 204.06, -3.24, 0, 0, 0, 1) 1
+1782 (2314.77, 200.82, -3.29, 0, 0, 0, 1) 1
+1783 (2316.09, 197.55, -3.34, 0, 0, 0, 1) 1
+1784 (2317.3799999999997, 194.19, -3.38, 0, 0, 0, 1) 1
+1785 (2318.67, 190.82999999999998, -3.38, 0, 0, 0, 1) 1
+1786 (2319.99, 187.44, -3.33, 0, 1, 0, 1) 1
+1787 (2321.28, 184.10999999999999, -3.28, 0, 1, 0, 1) 1
+1788 (2322.5699999999997, 180.83999999999997, -3.23, 0, 1, 0, 1) 1
+1789 (2323.86, 177.63, -3.18, 0, 1, 0, 1) 1
+1790 (2325.18, 174.45000000000002, -3.13, 0, 1, 0, 1) 1
+1791 (2326.4700000000003, 171.3, -3.08, 0, 1, 0, 1) 1
+1792 (2327.7599999999998, 168.21, -3.03, 0, 1, 0, 1) 1
+1793 (2329.08, 165.18, -2.99, 0, 1, 0, 1) 1
+1794 (2330.37, 162.21, -2.94, 0, 1, 0, 1) 1
+REF_WINDOW x y vy mode flip ground dead action
+1778 (2309.59, 213.506, -3.096, 0, 0, 0, 0) 1
+1779 (2310.89, 210.41, -3.1446, 0, 0, 0, 0) 1
+1780 (2312.19, 207.265, -3.1932, 0, 0, 0, 0) 1
+1781 (2313.49, 204.072, -3.2418, 0, 0, 0, 0) 1
+1782 (2314.78, 200.83, -3.2904, 0, 0, 0, 0) 1
+1783 (2316.08, 197.54, -3.339, 0, 0, 0, 0) 1
+1784 (2317.38, 194.201, -3.375, 0, 0, 0, 0) 1
+1785 (2318.68, 190.826, -3.375, 0, 0, 0, 0) 1
+1786 (2319.98, 187.451, -3.375, 0, 0, 0, 0) 1
+1787 (2321.28, 184.076, -3.375, 0, 0, 0, 0) 1
+1788 (2322.57, 180.701, -3.375, 0, 0, 0, 0) 1
+1789 (2323.87, 177.326, -3.375, 0, 0, 0, 0) 1
+1790 (2325.17, 173.951, -3.375, 0, 0, 0, 0) 1
+1791 (2326.47, 170.576, -3.375, 0, 0, 0, 0) 1
+1792 (2327.77, 167.201, -3.375, 0, 0, 0, 0) 1
+1793 (2329.07, 163.826, -3.375, 0, 0, 0, 0) 1
+1794 (2330.36, 160.451, -1.6389, 0, 1, 0, 0) 1
+FRAMES {'gd': 2582, 'pathfinder': 2130, 'actions': 2580}
