@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Replay one gdlearn macro in gdlearn and Pathfinder and report first drift.
 
-The tool can either solve a fresh macro or replay a caller-supplied macro.  The
-latter is essential for A/B physics tests: changing the simulator must not also
-change the action sequence being compared.
+A caller-supplied macro freezes the action sequence for physics A/B tests.  The
+Pathfinder checkout is also verified against a fixed commit so reference drift
+cannot be mistaken for a gdlearn regression.
 """
 from __future__ import annotations
 import argparse, pathlib, shutil, subprocess, sys, textwrap
@@ -71,11 +71,15 @@ def main():
             acts += [p[1]] * int(p[2])
     (w / 'actions.txt').write_text(''.join(acts))
 
+    # This exact shallow-clone path is the one already proven in CI.  Verify
+    # HEAD immediately afterwards so the reference remains pinned.
     pf = w / 'pathfinder'
-    run(['git', 'init', '-q', pf])
-    run(['git', '-C', pf, 'remote', 'add', 'origin', 'https://github.com/camila314/pathfinder'])
-    run(['git', '-C', pf, 'fetch', '-q', '--depth', '1', 'origin', args.pathfinder_ref])
-    run(['git', '-C', pf, 'checkout', '-q', '--detach', 'FETCH_HEAD'])
+    run(['git', 'clone', '--depth', '1', 'https://github.com/camila314/pathfinder', pf])
+    got = subprocess.check_output(['git', '-C', str(pf), 'rev-parse', 'HEAD'], text=True).strip()
+    print('PATHFINDER_CHECKOUT', got)
+    if args.pathfinder_ref and got != args.pathfinder_ref:
+        raise SystemExit(f'Pathfinder HEAD drifted: expected {args.pathfinder_ref}, got {got}')
+
     pfb = w / 'pf-build'
     run(['cmake', '-S', pf / 'gd-sim', '-B', pfb, '-DCMAKE_BUILD_TYPE=Release'], stdout=subprocess.DEVNULL)
     run(['cmake', '--build', pfb, '-j2'], stdout=subprocess.DEVNULL)
