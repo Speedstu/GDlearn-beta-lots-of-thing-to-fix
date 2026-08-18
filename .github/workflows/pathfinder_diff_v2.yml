@@ -1,4 +1,4 @@
-name: Validate corner falling guard
+name: Validate portal rotation v6
 on:
   push:
     branches: [agent/gdlearn2-physics-v6]
@@ -15,34 +15,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/apply_corner_fall_guard_v6.py
+          python3 tools/apply_portal_rotation_v6.py
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
           cmake --build build -j2 >/dev/null
           ./build/gdlearn selftest
           python3 tools/pathfinder_diff.py \
             --bin ./build/gdlearn \
             --frames 3000 \
-            --work /tmp/pf-corner \
+            --work /tmp/pf-portal-rot \
             --macro diagnostics/pathfinder_reference.macro \
-            | tee /tmp/corner.log
+            | tee /tmp/portal_rot.log
           python3 - <<'PY'
           import pathlib,re
-          t=pathlib.Path('/tmp/corner.log').read_text()
+          t=pathlib.Path('/tmp/portal_rot.log').read_text()
           m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
           tick=int(m.group(1)) if m else -1
-          print('CORNER_GUARD_FIRST_DIVERGENCE',tick)
-          if tick <= 997:
-              raise SystemExit(f'corner guard did not improve fixed-macro alignment: {tick}')
+          print('PORTAL_ROT_FIRST_DIVERGENCE',tick)
+          if tick <= 1786:
+              raise SystemExit(f'portal rotation did not improve fixed-macro alignment: {tick}')
           PY
       - name: persist validated patch
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p diagnostics
-          cp /tmp/corner.log diagnostics/corner_fall_guard_v6.txt
+          cp /tmp/portal_rot.log diagnostics/portal_rotation_v6.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/core/sim.cpp diagnostics/corner_fall_guard_v6.txt
-          git rm tools/apply_corner_fall_guard_v6.py
-          git commit -m 'only snap block corners while falling'
+          git add tools/gmd_to_gdl.py diagnostics/portal_rotation_v6.txt
+          git rm tools/apply_portal_rotation_v6.py .github/workflows/toe2_portal_1786_scan.yml
+          git commit -m 'respect Geometry Dash portal rotation during conversion'
           git push
