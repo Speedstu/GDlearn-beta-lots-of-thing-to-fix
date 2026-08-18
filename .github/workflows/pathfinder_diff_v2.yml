@@ -1,23 +1,48 @@
-name: Pathfinder CI heartbeat
+name: Validate corner falling guard
 on:
   push:
     branches: [agent/gdlearn2-physics-v6]
     paths: [.github/workflows/pathfinder_diff_v2.yml]
 permissions: {contents: write}
 jobs:
-  heartbeat:
+  validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
-      - name: persist heartbeat before any build
+      - name: patch build selftest fixed-macro diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/apply_corner_fall_guard_v6.py
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j2 >/dev/null
+          ./build/gdlearn selftest
+          python3 tools/pathfinder_diff.py \
+            --bin ./build/gdlearn \
+            --frames 3000 \
+            --work /tmp/pf-corner \
+            --macro diagnostics/pathfinder_reference.macro \
+            | tee /tmp/corner.log
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/corner.log').read_text()
+          m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          tick=int(m.group(1)) if m else -1
+          print('CORNER_GUARD_FIRST_DIVERGENCE',tick)
+          if tick <= 997:
+              raise SystemExit(f'corner guard did not improve fixed-macro alignment: {tick}')
+          PY
+      - name: persist validated patch
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p diagnostics
-          printf 'head=%s\nrun=%s\nrunner=started\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > diagnostics/ci_heartbeat.txt
+          cp /tmp/corner.log diagnostics/corner_fall_guard_v6.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add diagnostics/ci_heartbeat.txt
-          git commit -m 'record CI heartbeat' || true
+          git add src/core/sim.cpp diagnostics/corner_fall_guard_v6.txt
+          git rm tools/apply_corner_fall_guard_v6.py
+          git commit -m 'only snap block corners while falling'
           git push
