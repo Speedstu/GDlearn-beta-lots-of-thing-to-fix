@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replay one gdlearn macro in gdlearn and Pathfinder and report first drift.
 
-A caller-supplied macro freezes the action sequence for physics A/B tests.  The
+A caller-supplied macro freezes the action sequence for physics A/B tests. The
 Pathfinder checkout is also verified against a fixed commit so reference drift
 cannot be mistaken for a gdlearn regression.
 """
@@ -98,7 +98,9 @@ def main():
           std::ifstream af(argv[2]); std::string a; af>>a; Level lv(l);
           for(size_t i=0;i<a.size();++i){ auto&p=lv.runFrame(a[i]=='1',1.0f/240.0f);
             double wvy=(p.upsideDown?-p.velocity:p.velocity)/240.0;
-            std::cout<<i<<" "<<p.pos.x<<" "<<p.pos.y<<" "<<wvy<<" "<<(int)p.vehicle.type<<" "<<p.upsideDown<<" "<<p.grounded<<" "<<p.dead<<"\n";
+            std::cout<<i<<" "<<p.pos.x<<" "<<p.pos.y<<" "<<wvy<<" "
+                     <<(int)p.vehicle.type<<" "<<p.upsideDown<<" "<<p.grounded<<" "
+                     <<p.dead<<" "<<p.small<<" "<<p.speed<<"\n";
             if(p.dead)break; }
         }
     '''))
@@ -109,29 +111,34 @@ def main():
     with open(reftrace, 'w') as f:
         run([refbin, w / 'level.txt', w / 'actions.txt'], stdout=f)
 
-    # Tuple layout: x, y, world-vy, mode, flip, grounded, dead, [hold].
-    # Grounded/dead are part of the simulator state, not cosmetic diagnostics:
-    # a one-tick mismatch changes what inputs are legal on the next frame.
+    # Tuple layout: x,y,vy,mode,flip,ground,dead,mini,tier,[hold].
     gd = {}
     for line in gdtrace.read_text().splitlines():
         p = line.split()
-        if len(p) >= 9 and p[0].isdigit():
+        if len(p) >= 15 and p[0].isdigit():
             gd[int(p[0])] = (float(p[2]) * 30, float(p[3]) * 30, float(p[4]),
                              int(p[7]), int(p[8]), int(p[5]), int(p[6]),
+                             int(p[13]), int(p[14]), 1 if p[1] == 'HOLD' else 0)
+        elif len(p) >= 9 and p[0].isdigit():
+            # Backward compatibility with older trace binaries.
+            gd[int(p[0])] = (float(p[2]) * 30, float(p[3]) * 30, float(p[4]),
+                             int(p[7]), int(p[8]), int(p[5]), int(p[6]), -1, -1,
                              1 if p[1] == 'HOLD' else 0)
     ref = {}
     for line in reftrace.read_text().splitlines():
         p = line.split()
-        if len(p) >= 8:
+        if len(p) >= 10:
             ref[int(p[0])] = (float(p[1]), float(p[2]), float(p[3]),
-                              int(p[4]), int(p[5]), int(p[6]), int(p[7]))
+                              int(p[4]), int(p[5]), int(p[6]), int(p[7]),
+                              int(p[8]), int(p[9]))
 
     first = None
     for i in sorted(set(gd) & set(ref)):
         g, r = gd[i], ref[i]
         delta = (abs(g[0] - r[0]), abs(g[1] - r[1]), abs(g[2] - r[2]))
-        state_mismatch = (g[3] != r[3] or g[4] != r[4] or
-                          g[5] != r[5] or g[6] != r[6])
+        state_mismatch = (g[3] != r[3] or g[4] != r[4] or g[5] != r[5] or
+                          g[6] != r[6] or (g[7] >= 0 and g[7] != r[7]) or
+                          (g[8] >= 0 and g[8] != r[8]))
         if delta[0] > .15 or delta[1] > .15 or delta[2] > .03 or state_mismatch:
             first = (i, g, r, delta)
             break
@@ -141,18 +148,15 @@ def main():
     print('FIRST_DIVERGENCE', first)
     if first:
         i = first[0]
-        print('GD_WINDOW x y vy mode flip ground dead hold action')
+        print('GD_WINDOW x y vy mode flip ground dead mini tier hold action')
         for j in range(max(0, i - 8), i + 9):
             if j in gd:
                 print(j, gd[j], acts[j] if j < len(acts) else '?')
-        print('REF_WINDOW x y vy mode flip ground dead action')
+        print('REF_WINDOW x y vy mode flip ground dead mini tier action')
         for j in range(max(0, i - 8), i + 9):
             if j in ref:
                 print(j, ref[j], acts[j] if j < len(acts) else '?')
 
-    # gdlearn's trace CLI prints the terminal state once more on the next loop
-    # iteration, so a one-frame raw length difference is expected. The dead bit
-    # comparison above ensures the actual terminal tick itself still matches.
     print('FRAMES', {'gd': len(gd), 'pathfinder': len(ref), 'actions': len(acts)})
     return 0
 
