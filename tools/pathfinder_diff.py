@@ -51,9 +51,6 @@ def main():
         with open(w / 'solve.log', 'w') as f:
             solved = subprocess.run(list(map(str, solve_cmd)), stdout=f)
         print('SOLVE_RC', solved.returncode)
-        # gdlearn solve intentionally returns 1 when the best frontier is only a
-        # partial solution.  That macro is still exactly what we need for a
-        # differential replay.  Only fail if no macro was produced at all.
         if not macro.is_file() or macro.stat().st_size == 0:
             raise SystemExit(f'solve produced no replayable macro (rc={solved.returncode})')
 
@@ -79,8 +76,6 @@ def main():
             acts += [p[1]] * int(p[2])
     (w / 'actions.txt').write_text(''.join(acts))
 
-    # This exact shallow-clone path is the one already proven in CI.  Verify
-    # HEAD immediately afterwards so the reference remains pinned.
     pf = w / 'pathfinder'
     run(['git', 'clone', '--depth', '1', 'https://github.com/camila314/pathfinder', pf])
     got = subprocess.check_output(['git', '-C', str(pf), 'rev-parse', 'HEAD'], text=True).strip()
@@ -114,12 +109,16 @@ def main():
     with open(reftrace, 'w') as f:
         run([refbin, w / 'level.txt', w / 'actions.txt'], stdout=f)
 
+    # Tuple layout: x, y, world-vy, mode, flip, grounded, dead, [hold].
+    # Grounded/dead are part of the simulator state, not cosmetic diagnostics:
+    # a one-tick mismatch changes what inputs are legal on the next frame.
     gd = {}
     for line in gdtrace.read_text().splitlines():
         p = line.split()
         if len(p) >= 9 and p[0].isdigit():
             gd[int(p[0])] = (float(p[2]) * 30, float(p[3]) * 30, float(p[4]),
-                             int(p[7]), int(p[8]), int(p[5]), 1 if p[1] == 'HOLD' else 0)
+                             int(p[7]), int(p[8]), int(p[5]), int(p[6]),
+                             1 if p[1] == 'HOLD' else 0)
     ref = {}
     for line in reftrace.read_text().splitlines():
         p = line.split()
@@ -131,7 +130,9 @@ def main():
     for i in sorted(set(gd) & set(ref)):
         g, r = gd[i], ref[i]
         delta = (abs(g[0] - r[0]), abs(g[1] - r[1]), abs(g[2] - r[2]))
-        if delta[0] > .15 or delta[1] > .15 or delta[2] > .03 or g[3] != r[3] or g[4] != r[4]:
+        state_mismatch = (g[3] != r[3] or g[4] != r[4] or
+                          g[5] != r[5] or g[6] != r[6])
+        if delta[0] > .15 or delta[1] > .15 or delta[2] > .03 or state_mismatch:
             first = (i, g, r, delta)
             break
 
@@ -140,7 +141,7 @@ def main():
     print('FIRST_DIVERGENCE', first)
     if first:
         i = first[0]
-        print('GD_WINDOW x y vy mode flip ground hold action')
+        print('GD_WINDOW x y vy mode flip ground dead hold action')
         for j in range(max(0, i - 8), i + 9):
             if j in gd:
                 print(j, gd[j], acts[j] if j < len(acts) else '?')
@@ -148,6 +149,10 @@ def main():
         for j in range(max(0, i - 8), i + 9):
             if j in ref:
                 print(j, ref[j], acts[j] if j < len(acts) else '?')
+
+    # gdlearn's trace CLI prints the terminal state once more on the next loop
+    # iteration, so a one-frame raw length difference is expected. The dead bit
+    # comparison above ensures the actual terminal tick itself still matches.
     print('FRAMES', {'gd': len(gd), 'pathfinder': len(ref), 'actions': len(acts)})
     return 0
 
