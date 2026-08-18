@@ -242,10 +242,8 @@ void Sim::resolveWorld(const State& prev) {
   const float prevY = prev.y;
   const float g = st_.gdir();
   const float hw = st_.halfW(), hh = st_.halfH();
-  const float lhw = hw * (1.0f - phys::HITBOX_LETHAL_SCALE);
-  const float lhh = hh * (1.0f - phys::HITBOX_LETHAL_SCALE);
-  // Solid sides use the compact inner player hitbox.  Hazards keep
-  // their separately tuned lethal box above.
+  // Pathfinder uses the full unrotated player hitbox for ordinary hazards.
+  // Solid side collisions still use the compact inner hitbox below.
   const float bhw = hw * phys::HITBOX_LETHAL_SCALE;
   const float bhh = hh * phys::HITBOX_LETHAL_SCALE;
 
@@ -443,7 +441,7 @@ void Sim::resolveWorld(const State& prev) {
         ? slope::hazardHit(st_, o)
         : (o.sub == 1
             ? ellipseAabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)
-            : aabb(st_.x, st_.y, lhw, lhh, o.x, o.y, o.hw, o.hh));
+            : aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh));
     if (hit) {
       lastContactUid_ = o.uid;
       deathUid_ = o.uid;
