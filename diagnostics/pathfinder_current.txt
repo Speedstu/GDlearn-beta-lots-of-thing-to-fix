@@ -1,0 +1,76 @@
+tested_head=1192a4047fdb20eee1f8c19d0d9f3913684bacf8
+configure_rc=0
+build_rc=0
+selftest_rc=0
+diff_rc=1
+first_divergence=-1
+
+=== CONFIGURE ===
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (1.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/build
+CONFIGURE_RC=0
+=== BUILD ===
+[  8%] Building CXX object CMakeFiles/gdlearn.dir/src/app/main.cpp.o
+[ 16%] Building CXX object CMakeFiles/gdlearn.dir/src/core/level.cpp.o
+[ 25%] Building CXX object CMakeFiles/gdlearn.dir/src/core/sim.cpp.o
+[ 33%] Building CXX object CMakeFiles/gdlearn.dir/src/env/env.cpp.o
+[ 41%] Building CXX object CMakeFiles/gdlearn.dir/src/env/obs.cpp.o
+[ 50%] Building CXX object CMakeFiles/gdlearn.dir/src/io/macro.cpp.o
+[ 58%] Building CXX object CMakeFiles/gdlearn.dir/src/nn/net.cpp.o
+[ 66%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/curriculum.cpp.o
+[ 75%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/policy_runner.cpp.o
+[ 83%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/ppo.cpp.o
+[ 91%] Building CXX object CMakeFiles/gdlearn.dir/src/search/beam.cpp.o
+[100%] Linking CXX executable gdlearn
+[100%] Built target gdlearn
+BUILD_RC=0
+=== SELFTEST ===
+gdlearn2 selftest
+  [ ok ] idle run finishes a flat level
+  [ ok ] press produces a jump
+  [ ok ] cube lands again
+       airtime = 104 frames
+  [ ok ] flipped cube is never clamped by flight corridor ceiling
+  [ ok ] inverted ship never teleports below floor from remote ceiling
+  [ ok ] simulator is deterministic
+  [ ok ] state snapshot round-trips
+  [ ok ] observation encoder is clean
+       obs dim = 848
+  [ ok ] net trains without exploding
+  [ ok ] net saves
+  [ ok ] net loads
+  [ ok ] loaded net matches saved net
+  [ ok ] macro round-trips
+       beam: solved=0 progress=38.4% verify=38.4%
+  [ ok ] beam search makes real progress
+  [ ok ] macro replay matches the search
+
+all checks passed
+SELFTEST_RC=0
+=== PATHFINDER DIFF ===
++ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -o /tmp/pf-current/level.gdl --name Theory of Everything 2
+/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -> /tmp/pf-current/level.gdl: 4245 gameplay objects
++ ./build/gdlearn solve /tmp/pf-current/level.gdl --beam 6144 --widen 0 --max-frames 3000 --stall 2000 --out /tmp/pf-current/policy.macro
+Traceback (most recent call last):
+  File "/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/pathfinder_diff.py", line 148, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/pathfinder_diff.py", line 49, in main
+    run([args.bin, 'solve', gdl, '--beam', args.beam, '--widen', '0',
+  File "/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/pathfinder_diff.py", line 17, in run
+    return subprocess.run(list(map(str, cmd)), check=True, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['./build/gdlearn', 'solve', '/tmp/pf-current/level.gdl', '--beam', '6144', '--widen', '0', '--max-frames', '3000', '--stall', '2000', '--out', '/tmp/pf-current/policy.macro']' returned non-zero exit status 1.
+DIFF_RC=1
