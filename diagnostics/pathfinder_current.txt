@@ -1,9 +1,9 @@
-tested_head=8dfd37051ad7d5d543b83a4a7290e1b0a69b561f
+tested_head=a64f20b9897ddff93ef127cdac0d0fa66559018d
 configure_rc=0
 build_rc=0
 selftest_rc=0
-diff_rc=1
-first_divergence=-1
+diff_rc=0
+first_divergence=997
 
 === CONFIGURE ===
 -- The CXX compiler identification is GNU 13.3.0
@@ -15,7 +15,7 @@ first_divergence=-1
 -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
 -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
 -- Found Threads: TRUE
--- Configuring done (2.0s)
+-- Configuring done (1.8s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/build
 CONFIGURE_RC=0
@@ -61,16 +61,61 @@ SELFTEST_RC=0
 + /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -o /tmp/pf-current/level.gdl --name Theory of Everything 2
 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -> /tmp/pf-current/level.gdl: 4245 gameplay objects
 + ./build/gdlearn solve /tmp/pf-current/level.gdl --beam 6144 --widen 0 --max-frames 3000 --stall 2000 --out /tmp/pf-current/policy.macro
-Traceback (most recent call last):
-  File "/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/pathfinder_diff.py", line 148, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/pathfinder_diff.py", line 49, in main
-    run([args.bin, 'solve', gdl, '--beam', args.beam, '--widen', '0',
-  File "/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/pathfinder_diff.py", line 17, in run
-    return subprocess.run(list(map(str, cmd)), check=True, **kw)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/subprocess.py", line 571, in run
-    raise CalledProcessError(retcode, process.args,
-subprocess.CalledProcessError: Command '['./build/gdlearn', 'solve', '/tmp/pf-current/level.gdl', '--beam', '6144', '--widen', '0', '--max-frames', '3000', '--stall', '2000', '--out', '/tmp/pf-current/policy.macro']' returned non-zero exit status 1.
-DIFF_RC=1
+SOLVE_RC 1
++ ./build/gdlearn trace /tmp/pf-current/level.gdl --macro /tmp/pf-current/policy.macro --frames 3000
++ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pf-current/pathfinder
+Cloning into '/tmp/pf-current/pathfinder'...
+PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
++ cmake -S /tmp/pf-current/pathfinder/gd-sim -B /tmp/pf-current/pf-build -DCMAKE_BUILD_TYPE=Release
++ cmake --build /tmp/pf-current/pf-build -j2
+/tmp/pf-current/pathfinder/gd-sim/src/Vehicle.cpp: In static member function ‘static Vehicle Vehicle::from(VehicleType)’:
+/tmp/pf-current/pathfinder/gd-sim/src/Vehicle.cpp:393:1: warning: control reaches end of non-void function [-Wreturn-type]
+  393 | }
+      | ^
+/tmp/pf-current/pathfinder/gd-sim/src/Vehicle.cpp: In static member function ‘static Vehicle Vehicle::from(VehicleType)’:
+/tmp/pf-current/pathfinder/gd-sim/src/Vehicle.cpp:393:1: warning: control reaches end of non-void function [-Wreturn-type]
+  393 | }
+      | ^
++ g++ -O2 -std=c++20 /tmp/pf-current/ref.cpp -I/tmp/pf-current/pathfinder/gd-sim/include /tmp/pf-current/pf-build/libgd-sim.a -o /tmp/pf-current/ref
++ /tmp/pf-current/ref /tmp/pf-current/level.txt /tmp/pf-current/actions.txt
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE solved
+FIRST_DIVERGENCE (997, (1295.67, 216.98999999999998, -0.0, 0, 0, 1, 0), (1295.66, 216.442, 0.0369, 0, 0, 0, 0), (0.009999999999990905, 0.5479999999999734, 0.0369))
+GD_WINDOW x y vy mode flip ground hold action
+989 (1285.26, 214.41, 0.43, 0, 0, 0, 0) 0
+990 (1286.5800000000002, 214.82999999999998, 0.38, 0, 0, 0, 0) 0
+991 (1287.8700000000001, 215.19, 0.33, 0, 0, 0, 0) 0
+992 (1289.16, 215.52, 0.28, 0, 0, 0, 0) 0
+993 (1290.45, 215.82, 0.23, 0, 0, 0, 0) 0
+994 (1291.77, 216.03, 0.18, 0, 0, 0, 0) 0
+995 (1293.06, 216.21, 0.13, 0, 0, 0, 0) 0
+996 (1294.3500000000001, 216.35999999999999, 0.09, 0, 0, 0, 0) 0
+997 (1295.67, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+998 (1296.96, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+999 (1298.25, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+1000 (1299.54, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+1001 (1300.8600000000001, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+1002 (1302.15, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+1003 (1303.44, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+1004 (1304.76, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+1005 (1306.05, 216.98999999999998, -0.0, 0, 0, 1, 0) 0
+REF_WINDOW x y vy mode flip ground dead action
+989 (1285.27, 214.398, 0.4257, 0, 0, 0, 0) 0
+990 (1286.57, 214.823, 0.3771, 0, 0, 0, 0) 0
+991 (1287.87, 215.2, 0.3285, 0, 0, 0, 0) 0
+992 (1289.17, 215.529, 0.2799, 0, 0, 0, 0) 0
+993 (1290.46, 215.809, 0.2313, 0, 0, 0, 0) 0
+994 (1291.76, 216.04, 0.1827, 0, 0, 0, 0) 0
+995 (1293.06, 216.223, 0.1341, 0, 0, 0, 0) 0
+996 (1294.36, 216.357, 0.0855, 0, 0, 0, 0) 0
+997 (1295.66, 216.442, 0.0369, 0, 0, 0, 0) 0
+998 (1296.96, 216.479, -0.0117, 0, 0, 0, 0) 0
+999 (1298.25, 217.0, 0.0, 0, 0, 1, 0) 0
+1000 (1299.55, 217.0, 0.0, 0, 0, 1, 0) 0
+1001 (1300.85, 217.0, 0.0, 0, 0, 1, 0) 0
+1002 (1302.15, 217.0, 0.0, 0, 0, 1, 0) 0
+1003 (1303.45, 217.0, 0.0, 0, 0, 1, 0) 0
+1004 (1304.75, 217.0, 0.0, 0, 0, 1, 0) 0
+1005 (1306.04, 217.0, 0.0, 0, 0, 1, 0) 0
+FRAMES {'gd': 2582, 'pathfinder': 2130, 'actions': 2580}
+DIFF_RC=0
