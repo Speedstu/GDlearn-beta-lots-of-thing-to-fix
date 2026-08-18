@@ -1,10 +1,15 @@
 name: Pathfinder fixed macro AB v3
-on: [push]
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths:
+      - .github/workflows/pathfinder_fixed_ab_v3.yml
+      - tools/pathfinder_diff.py
+      - tools/apply_full_hazard_hitbox_v6.py
 permissions:
   contents: write
 jobs:
   ab:
-    if: github.ref == 'refs/heads/agent/gdlearn2-physics-v6'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
