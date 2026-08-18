@@ -31,13 +31,15 @@ constexpr float VEL_60_TO_TICK = 1.0f / TICKS_PER_LEGACY_FRAME;          // 1/4
 constexpr float ACCEL_60_TO_TICK2 = VEL_60_TO_TICK * VEL_60_TO_TICK;    // 1/16
 
 // ---------------------------------------------------------------- speeds ----
-// world units / second. Indexed by speed tier.
+// world units / second. Indexed by speed tier. These are the measured GD
+// values used by Pathfinder; keeping the full precision matters over thousands
+// of native ticks (the old 2-decimal values accumulated >1 world unit of drift).
 constexpr std::array<float, 5> SPEEDS = {
-    251.16f,  // slow
-    311.58f,  // normal
-    387.42f,  // fast
-    468.00f,  // faster
-    576.00f,  // fastest
+    251.16007972276924f,  // slow
+    311.580093712804f,    // normal
+    387.42014039710523f,  // fast
+    468.0001388338566f,   // faster
+    576.00020058307177f,  // fastest
 };
 
 // ------------------------------------------------------------------ cube ----
