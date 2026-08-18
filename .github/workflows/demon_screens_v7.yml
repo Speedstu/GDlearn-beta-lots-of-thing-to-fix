@@ -1,0 +1,127 @@
+name: Demon blocker screens v7
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/demon_screens_v7.yml]
+permissions: {contents: write}
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pillow
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j2 >/dev/null
+          mkdir -p /tmp/dscreens diagnostics/demons_v7/screens
+
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/dscreens/clubstep.gdl --name Clubstep
+          python3 tools/gmd_to_gdl.py levels/18.gmd -o /tmp/dscreens/toe2.gdl --name 'Theory of Everything 2'
+          python3 tools/gmd_to_gdl.py levels/20.gmd -o /tmp/dscreens/deadlocked.gdl --name Deadlocked
+
+          ./build/gdlearn trace /tmp/dscreens/clubstep.gdl --macro diagnostics/demons_v7/clubstep.macro --frames 30000 > /tmp/dscreens/clubstep.trace
+          ./build/gdlearn trace /tmp/dscreens/toe2.gdl --macro diagnostics/demons_v7/toe2.macro --frames 30000 > /tmp/dscreens/toe2.trace
+          ./build/gdlearn trace /tmp/dscreens/deadlocked.gdl --macro diagnostics/demons_v7/deadlocked.macro --frames 30000 > /tmp/dscreens/deadlocked.trace
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageDraw, ImageFont
+          import re, math
+
+          OUT=Path('diagnostics/demons_v7/screens')
+          OUT.mkdir(parents=True,exist_ok=True)
+          report=[]
+          specs=[('clubstep','Clubstep'),('toe2','Theory of Everything 2'),('deadlocked','Deadlocked')]
+          colors={'solid':(95,105,130),'hazard':(225,65,75),'pad':(220,185,60),'orb':(70,190,225),'portal':(170,90,220),'speed':(80,205,125)}
+
+          def parse_trace(path):
+              rows=[]
+              rx=re.compile(r'^\s*(\d+)\s+(HOLD|\.\.\.\.)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)')
+              for line in Path(path).read_text().splitlines():
+                  m=rx.match(line)
+                  if not m: continue
+                  rows.append(dict(frame=int(m[1]),hold=m[2]=='HOLD',x=float(m[3])*30,y=float(m[4])*30,vy=float(m[5]),ground=int(m[6]),dead=int(m[7]),mode=int(m[8]),flip=int(m[9]),pad=int(m[10]),orb=int(m[11]),contact=int(m[12]),death=int(m[13])))
+              return rows
+
+          def parse_gdl(path):
+              objs=[]
+              for line in Path(path).read_text().splitlines():
+                  p=line.split()
+                  if len(p)>=8 and p[0]=='o':
+                      objs.append(dict(uid=len(objs),kind=p[1],sub=int(p[2]),x=float(p[3]),y=float(p[4]),hw=float(p[5]),hh=float(p[6]),id=int(p[7])))
+              return objs
+
+          for key,name in specs:
+              rows=parse_trace(f'/tmp/dscreens/{key}.trace')
+              objs=parse_gdl(f'/tmp/dscreens/{key}.gdl')
+              dead=next((r for r in rows if r['dead']),rows[-1])
+              death_obj=objs[dead['death']] if 0<=dead['death']<len(objs) else None
+              W,H=1400,820; scale=2.0
+              spanx=W/scale; spany=H/scale
+              cx,cy=dead['x'],dead['y']
+              x0=cx-spanx*0.48; y0=cy-spany*0.50
+              def sx(x): return int((x-x0)*scale)
+              def sy(y): return int(H-(y-y0)*scale)
+              im=Image.new('RGB',(W,H),(15,17,24)); d=ImageDraw.Draw(im)
+              # grid
+              for gx in range(math.floor(x0/30)*30, math.ceil((x0+spanx)/30)*30+1,30):
+                  d.line((sx(gx),0,sx(gx),H),fill=(28,31,43),width=1)
+              for gy in range(math.floor(y0/30)*30, math.ceil((y0+spany)/30)*30+1,30):
+                  d.line((0,sy(gy),W,sy(gy)),fill=(28,31,43),width=1)
+
+              nearby=[]
+              for o in objs:
+                  if o['x']+o['hw'] < x0 or o['x']-o['hw'] > x0+spanx: continue
+                  if o['y']+o['hh'] < y0 or o['y']-o['hh'] > y0+spany: continue
+                  nearby.append(o)
+                  col=colors.get(o['kind'],(120,120,120))
+                  box=(sx(o['x']-o['hw']),sy(o['y']+o['hh']),sx(o['x']+o['hw']),sy(o['y']-o['hh']))
+                  if o['kind']=='hazard' and o['sub']==1:
+                      d.ellipse(box,outline=col,width=2)
+                  elif o['kind']=='hazard':
+                      d.polygon([(sx(o['x']-o['hw']),sy(o['y']-o['hh'])),(sx(o['x']),sy(o['y']+o['hh'])),(sx(o['x']+o['hw']),sy(o['y']-o['hh']))],outline=col)
+                  else:
+                      d.rectangle(box,outline=col,width=2)
+                  if abs(o['x']-cx)<170 and abs(o['y']-cy)<140:
+                      d.text((sx(o['x']-o['hw']),sy(o['y']+o['hh'])-14),f"u{o['uid']} id{o['id']}",fill=(190,195,210))
+
+              # trajectory
+              trail=[r for r in rows if r['frame']<=dead['frame']][-320:]
+              pts=[(sx(r['x']),sy(r['y'])) for r in trail]
+              if len(pts)>1:d.line(pts,fill=(70,220,155),width=3)
+              # player full box
+              ph=9 if False else 15
+              pb=(sx(cx-ph),sy(cy+ph),sx(cx+ph),sy(cy-ph))
+              d.rectangle(pb,outline=(255,255,255),width=4)
+              d.line((sx(cx),sy(cy),sx(cx+dead['vy']*20),sy(cy+dead['vy']*20)),fill=(255,210,70),width=3)
+              if death_obj:
+                  o=death_obj
+                  box=(sx(o['x']-o['hw'])-4,sy(o['y']+o['hh'])-4,sx(o['x']+o['hw'])+4,sy(o['y']-o['hh'])+4)
+                  d.rectangle(box,outline=(255,80,210),width=5)
+              title=f"{name} | death frame {dead['frame']} | x={dead['x']/30:.2f}bl y={dead['y']/30:.2f}bl | mode={dead['mode']} flip={dead['flip']} | deathUID={dead['death']}"
+              d.rectangle((0,0,W,34),fill=(20,23,32))
+              d.text((12,10),title,fill=(245,245,250))
+              if death_obj:
+                  desc=f"killer: uid={death_obj['uid']} id={death_obj['id']} kind={death_obj['kind']} sub={death_obj['sub']} center=({death_obj['x']:.1f},{death_obj['y']:.1f}) half=({death_obj['hw']:.2f},{death_obj['hh']:.2f})"
+              else:
+                  desc='killer: world boundary / uninstrumented'
+              d.rectangle((0,H-34,W,H),fill=(20,23,32)); d.text((12,H-25),desc,fill=(255,190,225))
+              im.save(OUT/f'{key}.png')
+              report.append(f'[{name}] '+desc)
+              report.append(f"death_state={dead}")
+              report.append('nearby=' + ', '.join(f"u{o['uid']}/id{o['id']}/{o['kind']}@({o['x']:.1f},{o['y']:.1f})[{o['hw']:.1f},{o['hh']:.1f}]" for o in nearby if abs(o['x']-cx)<120 and abs(o['y']-cy)<120))
+              report.append('')
+
+          (OUT/'report.txt').write_text('\n'.join(report))
+          print('\n'.join(report))
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/demons_v7/screens
+          git commit -m 'add visual diagnostics for current demon blockers'
+          git push
