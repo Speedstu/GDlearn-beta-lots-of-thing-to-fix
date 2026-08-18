@@ -1,0 +1,14 @@
++ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -o /tmp/pf-terminal/level.gdl --name Theory of Everything 2
+/home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/levels/18.gmd -> /tmp/pf-terminal/level.gdl: 4245 gameplay objects
++ fixed macro /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/pathfinder_reference.macro -> /tmp/pf-terminal/policy.macro
++ ./build/gdlearn trace /tmp/pf-terminal/level.gdl --macro /tmp/pf-terminal/policy.macro --frames 3000
++ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pf-terminal/pathfinder
+PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
++ cmake -S /tmp/pf-terminal/pathfinder/gd-sim -B /tmp/pf-terminal/pf-build -DCMAKE_BUILD_TYPE=Release
++ cmake --build /tmp/pf-terminal/pf-build -j2
++ g++ -O2 -std=c++20 /tmp/pf-terminal/ref.cpp -I/tmp/pf-terminal/pathfinder/gd-sim/include /tmp/pf-terminal/pf-build/libgd-sim.a -o /tmp/pf-terminal/ref
++ /tmp/pf-terminal/ref /tmp/pf-terminal/level.txt /tmp/pf-terminal/actions.txt
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/pathfinder_reference.macro
+FIRST_DIVERGENCE None
+FRAMES {'gd': 2131, 'pathfinder': 2130, 'actions': 2580}
