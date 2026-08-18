@@ -9,6 +9,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - run: python3 tools/apply_full_hazard_hitbox_v6.py
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build -j2
-      - run: python3 tools/pathfinder_diff.py --bin ./build/gdlearn --beam 6144 --frames 3000
+      - run: ./build/gdlearn selftest
+      - run: python3 tools/pathfinder_diff.py --bin ./build/gdlearn --beam 6144 --frames 3000 | tee /tmp/diff.log
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          t=open('/tmp/diff.log').read()
+          m=re.search(r'FIRST_DIVERGENCE \((\d+),', t)
+          if not m: raise SystemExit('missing differential result')
+          tick=int(m.group(1)); print('FULL_HAZARD_FIRST_DIVERGENCE', tick)
+          if tick <= 1106: raise SystemExit('full hazard patch did not improve alignment')
+          PY
