@@ -1,0 +1,18 @@
+===== Clubstep (clubstep) =====
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v7/clubstep.macro
+FIRST_DIVERGENCE (1197, (1555.2900000000002, 195.0, -0.0, 0, 1, 1, 0, 0), (1556.3, 195.0, -0.0, 0, 1, 1, 0), (1.0099999999997635, 0.0, 0.0))
+FRAMES {'gd': 8345, 'pathfinder': 2192, 'actions': 8343}
+
+===== Theory of Everything 2 (toe2) =====
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v7/toe2.macro
+FIRST_DIVERGENCE (1515, (1968.12, 165.0, 2.52, 0, 0, 0, 0, 1), (1969.13, 165.0, 2.5155, 0, 0, 0, 0), (1.0100000000002183, 0.0, 0.0045000000000001705))
+FRAMES {'gd': 4621, 'pathfinder': 2805, 'actions': 4619}
+
+===== Deadlocked (deadlocked) =====
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v7/deadlocked.macro
+FIRST_DIVERGENCE (644, (837.39, 166.74, 2.6, 4, 0, 0, 0, 1), (837.378, 166.749, 1.29825, 4, 0, 0, 0), (0.011999999999943611, 0.00899999999998613, 1.3017500000000002))
+FRAMES {'gd': 3655, 'pathfinder': 1022, 'actions': 3653}
+
