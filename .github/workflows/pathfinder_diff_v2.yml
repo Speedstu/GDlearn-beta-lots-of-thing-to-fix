@@ -1,36 +1,71 @@
-name: Pathfinder diff v2
+name: Pathfinder fixed-macro A/B
 on:
   push:
     branches: [agent/gdlearn2-physics-v6]
-    paths: [.github/workflows/pathfinder_diff_v2.yml, tools/pathfinder_diff.py]
+    paths: [.github/workflows/pathfinder_diff_v2.yml]
 permissions: {contents: write}
 jobs:
-  diff:
+  ab:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
-      - run: python3 tools/apply_full_hazard_hitbox_v6.py
-      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build -j2
-      - run: ./build/gdlearn selftest
-      - run: python3 tools/pathfinder_diff.py --bin ./build/gdlearn --beam 6144 --frames 3000 | tee /tmp/diff.log
-      - shell: bash
+      - name: Build baseline
+        run: |
+          cmake -S . -B build_base -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_base -j2
+          ./build_base/gdlearn selftest
+      - name: Solve and diff baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          python3 tools/pathfinder_diff.py \
+            --bin ./build_base/gdlearn \
+            --beam 6144 --frames 3000 \
+            --work /tmp/pf-base \
+            --save-macro diagnostics/pathfinder_reference.macro \
+            | tee /tmp/base.log
+      - name: Apply hazard variant and build
+        run: |
+          python3 tools/apply_full_hazard_hitbox_v6.py
+          cmake -S . -B build_var -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_var -j2
+          ./build_var/gdlearn selftest
+      - name: Diff variant with identical inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/pathfinder_diff.py \
+            --bin ./build_var/gdlearn \
+            --frames 3000 \
+            --work /tmp/pf-var \
+            --macro diagnostics/pathfinder_reference.macro \
+            | tee /tmp/variant.log
+      - name: Persist A/B result
+        shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, pathlib
-          t=open('/tmp/diff.log').read()
-          m=re.search(r'FIRST_DIVERGENCE \((\d+),', t)
-          tick=int(m.group(1)) if m else -1
-          print('FULL_HAZARD_FIRST_DIVERGENCE', tick)
-          pathlib.Path('/tmp/tick.txt').write_text(str(tick))
+          import pathlib,re
+          def tick(path):
+              t=pathlib.Path(path).read_text()
+              m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+              return int(m.group(1)) if m else -1
+          b=tick('/tmp/base.log'); v=tick('/tmp/variant.log')
+          out=pathlib.Path('diagnostics/pathfinder_ab_latest.txt')
+          out.write_text(
+              f'tested_head={pathlib.os.environ.get("GITHUB_SHA","")}\n'
+              f'baseline_first_divergence={b}\nvariant_first_divergence={v}\n'
+              '\n===== BASELINE =====\n'+pathlib.Path('/tmp/base.log').read_text()+
+              '\n===== VARIANT =====\n'+pathlib.Path('/tmp/variant.log').read_text())
+          print('BASELINE_FIRST_DIVERGENCE',b)
+          print('VARIANT_FIRST_DIVERGENCE',v)
           PY
-          mkdir -p diagnostics
-          { echo "tested_head=$GITHUB_SHA"; echo -n "first_divergence="; cat /tmp/tick.txt; echo; cat /tmp/diff.log; } > diagnostics/pathfinder_diff_latest.txt
+          git checkout -- src/core/sim.cpp
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add diagnostics/pathfinder_diff_latest.txt
-          git commit -m 'record latest Pathfinder differential' || true
+          git add diagnostics/pathfinder_reference.macro diagnostics/pathfinder_ab_latest.txt
+          git commit -m 'record fixed-macro Pathfinder A/B' || true
           git push
