@@ -915,7 +915,7 @@ int cmdTrace(const Args& a) {
   const int from = a.num("from", 0);
   const int holdLen = a.num("hold", 1);
   Sim sim(&lv);
-  std::printf("frame  hold      x(bl)   y(bl)     vy  ground dead mode flip pad orb contact deathuid\n");
+  std::printf("frame  hold      x(bl)   y(bl)     vy  ground dead mode flip pad orb contact deathuid mini tier\n");
   for (int f = 0; f < total; ++f) {
     bool hold = f < static_cast<int>(holds.size()) ? holds[f] != 0 : false;
     for (int j : jumpFrames)
@@ -924,11 +924,12 @@ int cmdTrace(const Args& a) {
     sim.step(hold);
     const State& s = sim.state();
     if (f >= from)
-      std::printf("%5d  %s   %8.3f %7.3f %6.2f     %d    %d    %d    %d %d %d %d %d\n", f,
+      std::printf("%5d  %s   %8.3f %7.3f %6.2f     %d    %d    %d    %d %d %d %d %d %d %d\n", f,
                   hold ? "HOLD" : "....", s.x / phys::BLOCK,
                   s.y / phys::BLOCK, s.vy, s.onGround ? 1 : 0,
                   s.dead ? 1 : 0, static_cast<int>(s.mode), s.flip ? 1 : 0,
-                  s.lastPadUid, s.lastOrbUid, sim.lastContactUid(), sim.deathUid());
+                  s.lastPadUid, s.lastOrbUid, sim.lastContactUid(), sim.deathUid(),
+                  s.mini ? 1 : 0, static_cast<int>(s.tier));
     if (!aliveBefore) break;
   }
   return 0;
