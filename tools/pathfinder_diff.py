@@ -45,9 +45,17 @@ def main():
         shutil.copyfile(source_macro, macro)
         print('+ fixed macro', source_macro, '->', macro, flush=True)
     else:
+        solve_cmd = [args.bin, 'solve', gdl, '--beam', args.beam, '--widen', '0',
+                     '--max-frames', args.frames, '--stall', '2000', '--out', macro]
+        print('+', ' '.join(map(str, solve_cmd)), flush=True)
         with open(w / 'solve.log', 'w') as f:
-            run([args.bin, 'solve', gdl, '--beam', args.beam, '--widen', '0',
-                 '--max-frames', args.frames, '--stall', '2000', '--out', macro], stdout=f)
+            solved = subprocess.run(list(map(str, solve_cmd)), stdout=f)
+        print('SOLVE_RC', solved.returncode)
+        # gdlearn solve intentionally returns 1 when the best frontier is only a
+        # partial solution.  That macro is still exactly what we need for a
+        # differential replay.  Only fail if no macro was produced at all.
+        if not macro.is_file() or macro.stat().st_size == 0:
+            raise SystemExit(f'solve produced no replayable macro (rc={solved.returncode})')
 
     if args.save_macro:
         out = pathlib.Path(args.save_macro)
