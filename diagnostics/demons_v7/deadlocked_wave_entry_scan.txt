@@ -1,4 +1,15 @@
-(867.0, 149.0, 101, 'size-mini', 0.0, 0, 0, 1.0, 1.0, 1.0, ('portal', 11, 15.5, 45.0))
-(867.0, 149.0, 660, 'wave', 0.0, 0, 0, 1.0, 1.0, 1.0, ('portal', 4, 17.0, 43.0))
-(1139.11, 87.2299, 12, 'cube', 53.0, 0, 0, 1.0, 1.0, 1.0, ('portal', 0, 44.572182325618414, 39.45484966634206))
-(1139.11, 87.2299, 99, 'size-normal', 53.0, 0, 0, 1.0, 1.0, 1.0, ('portal', 10, 45.266730810984924, 39.46052644757521))
+RAW ORDER
+{'seg': 295, 'x': 867.0, 'y': 149.0, 'id': 660, 'name': 'wave', 'rot': 0.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 4, 17.0, 43.0)}
+{'seg': 296, 'x': 867.0, 'y': 149.0, 'id': 101, 'name': 'size-mini', 'rot': 0.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 11, 15.5, 45.0)}
+{'seg': 509, 'x': 1139.11, 'y': 87.2299, 'id': 12, 'name': 'cube', 'rot': 53.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 0, 44.572182325618414, 39.45484966634206)}
+{'seg': 510, 'x': 1139.11, 'y': 87.2299, 'id': 99, 'name': 'size-normal', 'rot': 53.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 10, 45.266730810984924, 39.46052644757521)}
+
+X ORDER
+{'seg': 295, 'x': 867.0, 'y': 149.0, 'id': 660, 'name': 'wave', 'rot': 0.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 4, 17.0, 43.0)}
+{'seg': 296, 'x': 867.0, 'y': 149.0, 'id': 101, 'name': 'size-mini', 'rot': 0.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 11, 15.5, 45.0)}
+{'seg': 509, 'x': 1139.11, 'y': 87.2299, 'id': 12, 'name': 'cube', 'rot': 53.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 0, 44.572182325618414, 39.45484966634206)}
+{'seg': 510, 'x': 1139.11, 'y': 87.2299, 'id': 99, 'name': 'size-normal', 'rot': 53.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 10, 45.266730810984924, 39.46052644757521)}
+
+SAME-X 867
+{'seg': 295, 'x': 867.0, 'y': 149.0, 'id': 660, 'name': 'wave', 'rot': 0.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 4, 17.0, 43.0)}
+{'seg': 296, 'x': 867.0, 'y': 149.0, 'id': 101, 'name': 'size-mini', 'rot': 0.0, 'flipH': 0, 'flipV': 0, 'scale': 1.0, 'converted': ('portal', 11, 15.5, 45.0)}
