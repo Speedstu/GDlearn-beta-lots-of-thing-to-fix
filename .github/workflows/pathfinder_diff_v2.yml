@@ -30,19 +30,25 @@ jobs:
           t=pathlib.Path('/tmp/gravity_vel.log').read_text()
           m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
           tick=int(m.group(1)) if m else -1
+          pathlib.Path('/tmp/gravity_tick.txt').write_text(str(tick))
           print('GRAVITY_VEL_FIRST_DIVERGENCE',tick)
-          if tick <= 1794:
-              raise SystemExit(f'gravity portal velocity did not improve fixed-macro alignment: {tick}')
           PY
-      - name: persist validated patch
+      - name: persist result and keep patch only on improvement
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p diagnostics
           cp /tmp/gravity_vel.log diagnostics/gravity_portal_velocity_v6.txt
+          TICK="$(cat /tmp/gravity_tick.txt)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/core/sim.cpp diagnostics/gravity_portal_velocity_v6.txt
-          git rm tools/apply_gravity_portal_velocity_v6.py
-          git commit -m 'match Geometry Dash gravity portal velocity transform'
+          git add diagnostics/gravity_portal_velocity_v6.txt
+          if [ "$TICK" -gt 1794 ]; then
+            git add src/core/sim.cpp
+            git rm tools/apply_gravity_portal_velocity_v6.py
+            git commit -m 'match Geometry Dash gravity portal velocity transform'
+          else
+            git checkout -- src/core/sim.cpp
+            git commit -m 'record rejected gravity portal velocity experiment'
+          fi
           git push
