@@ -1,4 +1,4 @@
-tested_head=1192a4047fdb20eee1f8c19d0d9f3913684bacf8
+tested_head=8dfd37051ad7d5d543b83a4a7290e1b0a69b561f
 configure_rc=0
 build_rc=0
 selftest_rc=0
@@ -15,7 +15,7 @@ first_divergence=-1
 -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
 -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
 -- Found Threads: TRUE
--- Configuring done (1.3s)
+-- Configuring done (2.0s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/build
 CONFIGURE_RC=0
