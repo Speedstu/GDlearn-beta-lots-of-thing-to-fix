@@ -1,0 +1,37 @@
+name: v8 speed portal audit
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/v8_speed_portal_audit.yml]
+permissions: {contents: write}
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > diagnostics_speed.txt
+          import sys
+          sys.path.insert(0,'tools'); import gmd_to_gdl as g
+          for num,name in [(14,'Clubstep'),(18,'ToE2'),(20,'Deadlocked')]:
+              raw=g.try_decompress(open(f'levels/{num}.gmd','rb').read()).decode('utf8','ignore')
+              print('===',name,'===')
+              for si,seg in enumerate(raw.split(';')[1:],1):
+                  if ',' not in seg: continue
+                  p=g.parse_props(seg); oid=g._i(p,1,0)
+                  if oid not in g.SPEEDS: continue
+                  o=g.classify(p)
+                  print('seg',si,'id',oid,'tier',g.SPEEDS[oid],'x',g._f(p,2,0),'y',g._f(p,3,0),'rot',g._f(p,6,0),'scale',g._f(p,32,1),'converted',None if o is None else (o.hw,o.hh,o.rotation))
+          PY
+          mkdir -p diagnostics/v8_regions
+          mv diagnostics_speed.txt diagnostics/v8_regions/speed_portals.txt
+          cat diagnostics/v8_regions/speed_portals.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/v8_regions/speed_portals.txt
+          git commit -m 'record v8 speed portal audit' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
