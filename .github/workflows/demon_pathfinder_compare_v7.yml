@@ -1,4 +1,4 @@
-# rerun after exact horizontal speeds + mini/tier oracle
+# rerun current corrected head 2026-08-19
 name: Demon Pathfinder compare v7
 on:
   push:
@@ -45,5 +45,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add diagnostics/demons_v7/pathfinder_compare.txt
-          git commit -m 'record Pathfinder comparison after exact speeds'
+          git commit -m 'record Pathfinder comparison on current corrected head'
           git push
