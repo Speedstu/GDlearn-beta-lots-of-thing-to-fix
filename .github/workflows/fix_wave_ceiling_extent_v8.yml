@@ -1,0 +1,49 @@
+name: fix wave full-size ceiling v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/fix_wave_ceiling_extent_v8.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: patch wave ceiling extent
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          old='''    lastCeiling_ = ground + phys::FLIGHT_CEILING;\n    if (isFlightMode(st_.mode) && st_.y + hh >= lastCeiling_) {\n      st_.y = lastCeiling_ - hh;'''
+          new='''    lastCeiling_ = ground + phys::FLIGHT_CEILING;\n    // Pathfinder wave clamp uses the wave's FULL vertical size (10 normal,\n    // 6 mini) rather than its half extent. Other flight modes use halfH.\n    const float flightExtent = st_.mode == Mode::Wave ? 2.0f * hh : hh;\n    if (isFlightMode(st_.mode) && st_.y + flightExtent >= lastCeiling_) {\n      st_.y = lastCeiling_ - flightExtent;'''
+          if old not in s: raise SystemExit('flight ceiling anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - name: fixed Deadlocked macro Pathfinder gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked --frames 12000 --work /tmp/pf-wave-ceil --macro diagnostics/demons_v8_fast/deadlocked.macro | tee /tmp/diff.log
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/diff.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          tick=int(m.group(1)) if m else 999999
+          pathlib.Path('diagnostics/wave_ceiling_extent_v8.txt').write_text(f'first_divergence={tick}\n'+t)
+          print('WAVE_CEILING_FIRST_DIVERGENCE',tick)
+          if tick <= 763: raise SystemExit(f'wave ceiling did not improve Pathfinder alignment: {tick}')
+          PY
+      - name: promote
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.cpp diagnostics/wave_ceiling_extent_v8.txt
+          git commit -m 'match Pathfinder wave full-size ceiling clamp'
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
