@@ -1,0 +1,9 @@
+tested_head=33072df251575e4c4ff5be5558c1b57c42913d9b
+patch_rc=1
+configure_rc=99
+build_rc=99
+selftest_rc=99
+diff_rc=99
+first_divergence=-1
+
+anchor missing src/search/beam.cpp: '  mix(static_cast<uint64_t>(static_cast<int64_t>(std::lround(s.vy * 64.0f)) + 1000000));\n  mix(stati'
