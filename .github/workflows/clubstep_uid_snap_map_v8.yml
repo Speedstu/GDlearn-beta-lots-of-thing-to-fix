@@ -1,0 +1,58 @@
+name: Clubstep UID and snap map v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/clubstep_uid_snap_map_v8.yml]
+permissions: {contents: write}
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/clubstep.gdl --name Clubstep >/dev/null
+          ./build/gdlearn trace /tmp/clubstep.gdl --macro diagnostics/demons_v8_fast/clubstep.macro --frames 1010 > /tmp/t.txt
+          python3 - <<'PY' > diagnostics/clubstep_uid_snap_map_v8.txt
+          from pathlib import Path
+          objs=[]
+          for l in Path('/tmp/clubstep.gdl').read_text().splitlines():
+              p=l.split()
+              if len(p)>=8 and p[0]=='o':
+                  objs.append(dict(uid=len(objs),kind=p[1],sub=int(p[2]),x=float(p[3]),y=float(p[4]),hw=float(p[5]),hh=float(p[6]),id=int(p[7]),rot=float(p[8]) if len(p)>8 else 0))
+          print('UID94',objs[94] if len(objs)>94 else None)
+          print('UID115',objs[115] if len(objs)>115 else None)
+          rows=[]
+          for l in Path('/tmp/t.txt').read_text().splitlines():
+              p=l.split()
+              if not p or not p[0].isdigit() or len(p)<15: continue
+              rows.append((int(p[0]),p[1],float(p[2])*30,float(p[3])*30,float(p[4]),int(p[5]),int(p[11]),int(p[12])))
+          print('\nLAST GROUNDED RUNS BEFORE 1004')
+          last=None
+          for r in rows:
+              if r[0]>=1004: break
+              if r[5]: last=r
+          print('last_grounded_frame',last)
+          if last and 0<=last[6]<len(objs): print('last_grounded_contact_object',objs[last[6]])
+          print('\nGROUND/CONTACT CHANGES 650..1004')
+          prev=(None,None)
+          for r in rows:
+              if not 650<=r[0]<=1004: continue
+              cur=(r[5],r[6])
+              if cur!=prev:
+                  obj=objs[r[6]] if 0<=r[6]<len(objs) else None
+                  print(r,'obj',obj)
+                  prev=cur
+          PY
+          cat diagnostics/clubstep_uid_snap_map_v8.txt
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/clubstep_uid_snap_map_v8.txt
+          git commit -m 'map Clubstep contacts to exact objects' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
