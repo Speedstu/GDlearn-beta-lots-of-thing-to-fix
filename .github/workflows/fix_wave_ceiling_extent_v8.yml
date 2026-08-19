@@ -1,3 +1,4 @@
+# observable wave ceiling experiment
 name: fix wave full-size ceiling v8
 on:
   push:
@@ -11,39 +12,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
-      - name: patch wave ceiling extent
+      - name: test wave clamp and always persist result
         shell: bash
         run: |
-          python3 - <<'PY'
+          set +e
+          mkdir -p diagnostics
+          : > /tmp/waveceil.log
+          python3 - <<'PY' >>/tmp/waveceil.log 2>&1
           from pathlib import Path
           p=Path('src/core/sim.cpp'); s=p.read_text()
           old='''    lastCeiling_ = ground + phys::FLIGHT_CEILING;\n    if (isFlightMode(st_.mode) && st_.y + hh >= lastCeiling_) {\n      st_.y = lastCeiling_ - hh;'''
-          new='''    lastCeiling_ = ground + phys::FLIGHT_CEILING;\n    // Pathfinder wave clamp uses the wave's FULL vertical size (10 normal,\n    // 6 mini) rather than its half extent. Other flight modes use halfH.\n    const float flightExtent = st_.mode == Mode::Wave ? 2.0f * hh : hh;\n    if (isFlightMode(st_.mode) && st_.y + flightExtent >= lastCeiling_) {\n      st_.y = lastCeiling_ - flightExtent;'''
+          new='''    lastCeiling_ = ground + phys::FLIGHT_CEILING;\n    // Pathfinder wave clamp uses the wave full vertical size, not halfH.\n    const float flightExtent = st_.mode == Mode::Wave ? 2.0f * hh : hh;\n    if (isFlightMode(st_.mode) && st_.y + flightExtent >= lastCeiling_) {\n      st_.y = lastCeiling_ - flightExtent;'''
           if old not in s: raise SystemExit('flight ceiling anchor missing')
           p.write_text(s.replace(old,new,1))
           PY
-      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build -j2
-      - run: ./build/gdlearn selftest
-      - name: fixed Deadlocked macro Pathfinder gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked --frames 12000 --work /tmp/pf-wave-ceil --macro diagnostics/demons_v8_fast/deadlocked.macro | tee /tmp/diff.log
-          python3 - <<'PY'
+          PATCH_RC=$?
+          CONFIGURE_RC=99; BUILD_RC=99; SELFTEST_RC=99; DIFF_RC=99; TICK=-1
+          if [ "$PATCH_RC" -eq 0 ]; then cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >>/tmp/waveceil.log 2>&1; CONFIGURE_RC=$?; fi
+          if [ "$CONFIGURE_RC" -eq 0 ]; then cmake --build build -j2 >>/tmp/waveceil.log 2>&1; BUILD_RC=$?; fi
+          if [ "$BUILD_RC" -eq 0 ]; then ./build/gdlearn selftest >>/tmp/waveceil.log 2>&1; SELFTEST_RC=$?; fi
+          if [ "$SELFTEST_RC" -eq 0 ]; then
+            python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked --frames 12000 --work /tmp/pf-wave-ceil --macro diagnostics/demons_v8_fast/deadlocked.macro >>/tmp/waveceil.log 2>&1
+            DIFF_RC=$?
+            TICK=$(python3 - <<'PY'
           import pathlib,re
-          t=pathlib.Path('/tmp/diff.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
-          tick=int(m.group(1)) if m else 999999
-          pathlib.Path('diagnostics/wave_ceiling_extent_v8.txt').write_text(f'first_divergence={tick}\n'+t)
-          print('WAVE_CEILING_FIRST_DIVERGENCE',tick)
-          if tick <= 763: raise SystemExit(f'wave ceiling did not improve Pathfinder alignment: {tick}')
+          t=pathlib.Path('/tmp/waveceil.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          print(int(m.group(1)) if m else 999999)
           PY
-      - name: promote
-        shell: bash
-        run: |
+            )
+          fi
+          {
+            echo "tested_head=$GITHUB_SHA"
+            echo "patch_rc=$PATCH_RC"
+            echo "configure_rc=$CONFIGURE_RC"
+            echo "build_rc=$BUILD_RC"
+            echo "selftest_rc=$SELFTEST_RC"
+            echo "diff_rc=$DIFF_RC"
+            echo "first_divergence=$TICK"
+            echo
+            cat /tmp/waveceil.log
+          } > diagnostics/wave_ceiling_extent_v8.txt
+          cat diagnostics/wave_ceiling_extent_v8.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/core/sim.cpp diagnostics/wave_ceiling_extent_v8.txt
-          git commit -m 'match Pathfinder wave full-size ceiling clamp'
+          if [ "$PATCH_RC" -eq 0 ] && [ "$CONFIGURE_RC" -eq 0 ] && [ "$BUILD_RC" -eq 0 ] && [ "$SELFTEST_RC" -eq 0 ] && [ "$DIFF_RC" -eq 0 ] && [ "$TICK" -gt 763 ]; then
+            git add src/core/sim.cpp diagnostics/wave_ceiling_extent_v8.txt
+            git commit -m 'match Pathfinder wave full-size ceiling clamp' || true
+          else
+            git checkout -- src/core/sim.cpp
+            git add diagnostics/wave_ceiling_extent_v8.txt
+            git commit -m 'record failed wave ceiling experiment' || true
+          fi
           git pull --rebase origin agent/gdlearn2-physics-v6
           git push
+          exit 0
