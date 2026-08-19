@@ -1,0 +1,8 @@
+===== Clubstep =====
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+FIRST_DIVERGENCE (1197, (1555.2900000000002, 195.0, -0.0, 0, 1, 1, 0, 0, 1, 0), (1556.3, 195.0, -0.0, 0, 1, 1, 0, 0, 1), (1.0099999999997635, 0.0, 0.0))
+FRAMES {'gd': 8345, 'pathfinder': 2192, 'actions': 8343}
+===== Theory of Everything 2 =====
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+FIRST_DIVERGENCE (1515, (1968.12, 165.0, 2.52, 0, 0, 0, 0, 0, 1, 1), (1969.13, 165.0, 2.5155, 0, 0, 0, 0, 0, 1), (1.0100000000002183, 0.0, 0.0045000000000001705))
+FRAMES {'gd': 4621, 'pathfinder': 2805, 'actions': 4619}
