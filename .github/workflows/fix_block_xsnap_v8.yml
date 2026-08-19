@@ -1,0 +1,39 @@
+name: fix block X-snap v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/fix_block_xsnap_v8.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - run: python3 tools/apply_block_xsnap_v8.py
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - name: Clubstep fixed-macro Pathfinder gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd levels/14.gmd --name Clubstep --frames 12000 --work /tmp/pf-xsnap --macro diagnostics/demons_v8_fast/clubstep.macro | tee /tmp/diff.log
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/diff.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          tick=int(m.group(1)) if m else 999999
+          pathlib.Path('diagnostics/block_xsnap_v8.txt').write_text(f'first_divergence={tick}\n'+t)
+          print('BLOCK_XSNAP_FIRST_DIVERGENCE',tick)
+          if tick <= 1004: raise SystemExit(f'X-snap did not improve Pathfinder alignment: {tick}')
+          PY
+      - name: promote
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.hpp src/core/sim.cpp src/search/beam.cpp src/app/main.cpp diagnostics/block_xsnap_v8.txt
+          git commit -m 'match Pathfinder cube staircase X-snapping'
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
