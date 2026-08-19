@@ -1,0 +1,50 @@
+name: fix vehicle portal corridor v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/fix_vehicle_corridor_v8.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: run observable corridor experiment
+        shell: bash
+        run: |
+          set +e
+          mkdir -p diagnostics
+          : >/tmp/corridor.log
+          python3 tools/apply_vehicle_corridor_v8.py >>/tmp/corridor.log 2>&1
+          PATCH_RC=$?; CONFIGURE_RC=99; BUILD_RC=99; SELFTEST_RC=99; DIFF_RC=99; TICK=-1
+          if [ "$PATCH_RC" -eq 0 ]; then cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >>/tmp/corridor.log 2>&1; CONFIGURE_RC=$?; fi
+          if [ "$CONFIGURE_RC" -eq 0 ]; then cmake --build build -j2 >>/tmp/corridor.log 2>&1; BUILD_RC=$?; fi
+          if [ "$BUILD_RC" -eq 0 ]; then ./build/gdlearn selftest >>/tmp/corridor.log 2>&1; SELFTEST_RC=$?; fi
+          if [ "$SELFTEST_RC" -eq 0 ]; then
+            python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked --frames 12000 --work /tmp/pf-corridor --macro diagnostics/demons_v8_fast/deadlocked.macro >>/tmp/corridor.log 2>&1
+            DIFF_RC=$?
+            TICK=$(python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/corridor.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          print(int(m.group(1)) if m else 999999)
+          PY
+            )
+          fi
+          {
+            echo "tested_head=$GITHUB_SHA"; echo "patch_rc=$PATCH_RC"; echo "configure_rc=$CONFIGURE_RC"; echo "build_rc=$BUILD_RC"; echo "selftest_rc=$SELFTEST_RC"; echo "diff_rc=$DIFF_RC"; echo "first_divergence=$TICK"; echo; cat /tmp/corridor.log;
+          } > diagnostics/vehicle_corridor_v8.txt
+          cat diagnostics/vehicle_corridor_v8.txt
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ "$PATCH_RC" -eq 0 ] && [ "$CONFIGURE_RC" -eq 0 ] && [ "$BUILD_RC" -eq 0 ] && [ "$SELFTEST_RC" -eq 0 ] && [ "$DIFF_RC" -eq 0 ] && [ "$TICK" -gt 763 ]; then
+            git add src/core/sim.hpp src/core/sim.cpp src/search/beam.cpp src/app/main.cpp diagnostics/vehicle_corridor_v8.txt
+            git commit -m 'match Geometry Dash vehicle portal corridors' || true
+          else
+            git checkout -- src/core/sim.hpp src/core/sim.cpp src/search/beam.cpp src/app/main.cpp
+            git add diagnostics/vehicle_corridor_v8.txt
+            git commit -m 'record failed vehicle corridor experiment' || true
+          fi
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
+          exit 0
