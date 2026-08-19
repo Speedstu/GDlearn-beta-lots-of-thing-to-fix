@@ -1,4 +1,4 @@
-# robust v8c corridor rerun
+# robust v8d corridor rerun
 name: fix vehicle portal corridor v8
 on:
   push:
@@ -18,19 +18,16 @@ jobs:
           set +e
           mkdir -p diagnostics
           : >/tmp/corridor.log
-          # v8b's only stale anchor is the formatting of main.cpp's semantic
-          # equality. Remove that source-text patch, run the physics patcher,
-          # then add the equality fields against the exact current source.
           python3 - <<'PY' >>/tmp/corridor.log 2>&1
           from pathlib import Path
           p=Path('tools/apply_vehicle_corridor_v8b.py'); s=p.read_text()
-          a=s.index('# Semantic deterministic state equality.')
-          b=s.index('# Replace the inferred-from-solids flight corridor')
-          p.write_text(s[:a]+s[b:])
+          a=s.find('# Semantic deterministic state equality.')
+          b=s.find('old_corridor=')
+          if a < 0 or b < 0 or b <= a: raise SystemExit(f'patcher surgery markers missing a={a} b={b}')
+          p.write_text(s[:a] + s[b:])
           PY
           PREP_RC=$?
-          if [ "$PREP_RC" -eq 0 ]; then python3 tools/apply_vehicle_corridor_v8b.py >>/tmp/corridor.log 2>&1; else false; fi
-          PATCH_RC=$?
+          if [ "$PREP_RC" -eq 0 ]; then python3 tools/apply_vehicle_corridor_v8b.py >>/tmp/corridor.log 2>&1; PATCH_RC=$?; else PATCH_RC=$PREP_RC; fi
           if [ "$PATCH_RC" -eq 0 ]; then
             python3 - <<'PY' >>/tmp/corridor.log 2>&1
           from pathlib import Path
