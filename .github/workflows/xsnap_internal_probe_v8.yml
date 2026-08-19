@@ -1,0 +1,68 @@
+name: X-snap internal probe v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/xsnap_internal_probe_v8.yml]
+permissions: {contents: write}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: apply X-snap + temporary trace instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/apply_block_xsnap_v8.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          s=s.replace('deathuid mini tier\\n");','deathuid mini tier snapUid snapFrame snapNextX\\n");',1)
+          old='''                  s.lastPadUid, s.lastOrbUid, sim.lastContactUid(), sim.deathUid(),\n                  s.mini ? 1 : 0, static_cast<int>(s.tier));'''
+          new='''                  s.lastPadUid, s.lastOrbUid, sim.lastContactUid(), sim.deathUid(),\n                  s.mini ? 1 : 0, static_cast<int>(s.tier), s.snapUid, s.snapFrame, s.snapNextX);'''
+          if old not in s: raise SystemExit('trace args anchor missing')
+          s=s.replace(old,new,1)
+          oldfmt='''%d %d %d %d %d %d\\n", f,'''
+          newfmt='''%d %d %d %d %d %d %d %d %.3f\\n", f,'''
+          if oldfmt not in s: raise SystemExit('trace fmt anchor missing')
+          s=s.replace(oldfmt,newfmt,1)
+          p.write_text(s)
+
+          # Add Pathfinder snapData values to its raw ref.trace. The parser can
+          # ignore the extra columns; we copy the raw trace separately below.
+          q=Path('tools/pathfinder_diff.py'); t=q.read_text()
+          old='''<<p.grounded<<" "<<p.dead<<"\\n";'''
+          new='''<<p.grounded<<" "<<p.dead<<" "<<p.snapData.playerFrame<<" "<<p.snapData.object.pos.x<<" "<<p.snapData.object.pos.y<<"\\n";'''
+          if old not in t: raise SystemExit('Pathfinder output anchor missing')
+          q.write_text(t.replace(old,new,1))
+          PY
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics/xsnap_probe /tmp/xsnap_probe
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/xsnap_probe/clubstep.gdl --name Clubstep >/dev/null
+          ./build/gdlearn trace /tmp/xsnap_probe/clubstep.gdl --macro diagnostics/demons_v8_fast/clubstep.macro --from 700 --frames 1020 > diagnostics/xsnap_probe/gd.txt
+          python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd levels/14.gmd --name Clubstep --frames 1020 --work /tmp/xsnap_probe/pf --macro diagnostics/demons_v8_fast/clubstep.macro > diagnostics/xsnap_probe/diff.txt
+          cp /tmp/xsnap_probe/pf/ref.trace diagnostics/xsnap_probe/pathfinder.txt
+          {
+            echo '=== GD SNAP EVENTS ==='
+            awk 'NR==1 || ($17!=-1 && $1>=700)' diagnostics/xsnap_probe/gd.txt | tail -n 120
+            echo '=== PATHFINDER SNAP EVENTS ==='
+            awk '$1>=700 && $9>0 {print}' diagnostics/xsnap_probe/pathfinder.txt | tail -n 120
+            echo '=== GD 990-1006 ==='
+            awk '$1>=990 && $1<=1006 {print}' diagnostics/xsnap_probe/gd.txt
+            echo '=== PF 990-1006 ==='
+            awk '$1>=990 && $1<=1006 {print}' diagnostics/xsnap_probe/pathfinder.txt
+          } > diagnostics/xsnap_probe/summary.txt
+          cat diagnostics/xsnap_probe/summary.txt
+          git checkout -- src/app/main.cpp tools/pathfinder_diff.py src/core/sim.hpp src/core/sim.cpp src/search/beam.cpp
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/xsnap_probe
+          git commit -m 'record internal Pathfinder X-snap state' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
