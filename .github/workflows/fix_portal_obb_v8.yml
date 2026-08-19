@@ -1,0 +1,44 @@
+name: fix portal OBB v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/fix_portal_obb_v8.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: apply exact portal rotation
+        run: python3 tools/apply_portal_obb_v8.py
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - name: deadlocked fixed macro Pathfinder diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/pathfinder_diff.py \
+            --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked \
+            --frames 5000 --work /tmp/pf-portal-obb \
+            --macro diagnostics/demons_v7/deadlocked.macro | tee /tmp/diff.log
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/diff.log').read_text()
+          m=re.search(r'FIRST_DIVERGENCE \((\d+),', t)
+          tick=int(m.group(1)) if m else 999999
+          pathlib.Path('diagnostics/portal_obb_v8.txt').write_text(f'first_divergence={tick}\n'+t)
+          print('PORTAL_OBB_FIRST_DIVERGENCE',tick)
+          if tick <= 867:
+              raise SystemExit(f'portal OBB did not improve Pathfinder alignment: {tick}')
+          PY
+      - name: promote
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/level.hpp src/core/level.cpp src/core/sim.cpp tools/gmd_to_gdl.py diagnostics/portal_obb_v8.txt
+          git commit -m 'preserve exact portal rotation with OBB collision'
+          git push
