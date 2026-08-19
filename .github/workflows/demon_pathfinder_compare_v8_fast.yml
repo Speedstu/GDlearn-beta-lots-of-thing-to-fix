@@ -1,0 +1,40 @@
+name: fast v8 demon Pathfinder compare
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths:
+      - .github/workflows/demon_pathfinder_compare_v8_fast.yml
+      - diagnostics/demons_v8_fast/*.macro
+permissions: {contents: write}
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          for f in diagnostics/demons_v8_fast/clubstep.macro diagnostics/demons_v8_fast/toe2.macro diagnostics/demons_v8_fast/deadlocked.macro; do [ -f "$f" ] || { echo 'fast macros missing'; exit 0; }; done
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j2 >/dev/null
+          ./build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/pffast diagnostics/demons_v8_fast
+          : > diagnostics/demons_v8_fast/pathfinder_compare.txt
+          run_one() {
+            KEY="$1"; NUM="$2"; NAME="$3"
+            echo "===== $NAME =====" | tee -a diagnostics/demons_v8_fast/pathfinder_compare.txt
+            python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd "levels/${NUM}.gmd" --name "$NAME" --frames 12000 --work "/tmp/pffast/$KEY" --macro "diagnostics/demons_v8_fast/${KEY}.macro" | tee "/tmp/pffast/$KEY.log"
+            grep -E '^(FIRST_DIVERGENCE|FRAMES|PATHFINDER_REF)' "/tmp/pffast/$KEY.log" | tee -a diagnostics/demons_v8_fast/pathfinder_compare.txt
+            echo >> diagnostics/demons_v8_fast/pathfinder_compare.txt
+          }
+          run_one clubstep 14 Clubstep
+          run_one toe2 18 'Theory of Everything 2'
+          run_one deadlocked 20 Deadlocked
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/demons_v8_fast/pathfinder_compare.txt
+          git commit -m 'record fast v8 Pathfinder comparison' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
