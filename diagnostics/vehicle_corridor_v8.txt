@@ -1,4 +1,4 @@
-tested_head=33072df251575e4c4ff5be5558c1b57c42913d9b
+tested_head=b8d260a03cd87baa3876d12cc3c755de38a2d69b
 patch_rc=1
 configure_rc=99
 build_rc=99
@@ -6,4 +6,4 @@ selftest_rc=99
 diff_rc=99
 first_divergence=-1
 
-anchor missing src/search/beam.cpp: '  mix(static_cast<uint64_t>(static_cast<int64_t>(std::lround(s.vy * 64.0f)) + 1000000));\n  mix(stati'
+anchor missing src/app/main.cpp: '      sa.x==sb.x && sa.y==sb.y && sa.vy==sb.vy && sa.rotation==sb.rotation &&\n      sa.speed==sb.speed && sa.frame==sb.f'
