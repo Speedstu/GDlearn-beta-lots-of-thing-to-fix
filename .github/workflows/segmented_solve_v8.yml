@@ -1,0 +1,32 @@
+name: segmented solve v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/segmented_solve_v8.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - run: python3 tools/apply_segmented_solve_v8.py
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - name: procedural segmented round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/gdlearn solve levels/d3_s0.gdl --beam 1024 --widen 1 --max-frames 12000 --stall 3000 --out /tmp/full.macro | tee /tmp/full.log
+          ./build/gdlearn solve levels/d3_s0.gdl --beam 1024 --widen 1 --max-frames 12000 --stall 3000 --prefix-macro /tmp/full.macro --prefix-back 240 --out /tmp/seg.macro | tee /tmp/seg.log
+          grep -q '^SOLVED' /tmp/seg.log
+      - name: promote
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/app/main.cpp
+          git commit -m 'add replay-verified segmented beam solving'
+          git push
