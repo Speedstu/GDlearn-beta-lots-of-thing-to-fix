@@ -530,7 +530,20 @@ void Sim::applyPortal(const Object& o) {
   // Portals are ABSOLUTE (blue = normal gravity, yellow = flipped, etc.), so
   // re-touching one is a no-op. That is what keeps State replay-safe.
   switch (static_cast<PortalKind>(o.sub)) {
-    case PortalKind::ModeCube: st_.mode = Mode::Cube; break;
+    case PortalKind::ModeCube: {
+      if (st_.mode != Mode::Cube) {
+        const Mode oldMode = st_.mode;
+        // Pathfinder VehiclePortal + Cube::enter semantics. Leaving wave first
+        // preserves 90% of velocity; cube entry then halves velocity for every
+        // previous mode except ball, and halves once more when coming from wave.
+        if (oldMode == Mode::Wave) st_.vy *= 0.9f;
+        if (oldMode != Mode::Ball) st_.vy *= 0.5f;
+        if (oldMode == Mode::Wave) st_.vy *= 0.5f;
+        if (oldMode == Mode::Ship && st_.holding) st_.buffer = true;
+        st_.mode = Mode::Cube;
+      }
+      break;
+    }
     case PortalKind::ModeShip: st_.mode = Mode::Ship; break;
     case PortalKind::ModeBall: st_.mode = Mode::Ball; break;
     case PortalKind::ModeUfo: st_.mode = Mode::Ufo; break;

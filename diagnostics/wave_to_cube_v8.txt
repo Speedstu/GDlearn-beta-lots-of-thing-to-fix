@@ -1,0 +1,15 @@
+first_divergence=999999
++ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py levels/20.gmd -o /tmp/pf-wave-cube/level.gdl --name Deadlocked
+levels/20.gmd -> /tmp/pf-wave-cube/level.gdl: 5814 gameplay objects
++ fixed macro /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v7/deadlocked.macro -> /tmp/pf-wave-cube/policy.macro
++ ./build/gdlearn trace /tmp/pf-wave-cube/level.gdl --macro /tmp/pf-wave-cube/policy.macro --frames 5000
++ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pf-wave-cube/pathfinder
+PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
++ cmake -S /tmp/pf-wave-cube/pathfinder/gd-sim -B /tmp/pf-wave-cube/pf-build -DCMAKE_BUILD_TYPE=Release
++ cmake --build /tmp/pf-wave-cube/pf-build -j2
++ g++ -O2 -std=c++20 /tmp/pf-wave-cube/ref.cpp -I/tmp/pf-wave-cube/pathfinder/gd-sim/include /tmp/pf-wave-cube/pf-build/libgd-sim.a -o /tmp/pf-wave-cube/ref
++ /tmp/pf-wave-cube/ref /tmp/pf-wave-cube/level.txt /tmp/pf-wave-cube/actions.txt
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v7/deadlocked.macro
+FIRST_DIVERGENCE None
+FRAMES {'gd': 1023, 'pathfinder': 1022, 'actions': 3653}
