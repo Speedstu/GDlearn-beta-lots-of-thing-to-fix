@@ -1,3 +1,4 @@
+# robust v8b corridor rerun
 name: fix vehicle portal corridor v8
 on:
   push:
@@ -17,7 +18,7 @@ jobs:
           set +e
           mkdir -p diagnostics
           : >/tmp/corridor.log
-          python3 tools/apply_vehicle_corridor_v8.py >>/tmp/corridor.log 2>&1
+          python3 tools/apply_vehicle_corridor_v8b.py >>/tmp/corridor.log 2>&1
           PATCH_RC=$?; CONFIGURE_RC=99; BUILD_RC=99; SELFTEST_RC=99; DIFF_RC=99; TICK=-1
           if [ "$PATCH_RC" -eq 0 ]; then cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >>/tmp/corridor.log 2>&1; CONFIGURE_RC=$?; fi
           if [ "$CONFIGURE_RC" -eq 0 ]; then cmake --build build -j2 >>/tmp/corridor.log 2>&1; BUILD_RC=$?; fi
