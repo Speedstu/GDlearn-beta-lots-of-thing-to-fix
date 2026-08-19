@@ -1,0 +1,51 @@
+name: fix wave to cube transition v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/fix_wave_to_cube_v8.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: patch cube enter semantics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/core/sim.cpp'); s=p.read_text()
+          old='case PortalKind::ModeCube: st_.mode = Mode::Cube; break;'
+          new='''case PortalKind::ModeCube: {\n      if (st_.mode != Mode::Cube) {\n        const Mode oldMode = st_.mode;\n        // Pathfinder VehiclePortal + Cube::enter semantics. Leaving wave first\n        // preserves 90% of velocity; cube entry then halves velocity for every\n        // previous mode except ball, and halves once more when coming from wave.\n        if (oldMode == Mode::Wave) st_.vy *= 0.9f;\n        if (oldMode != Mode::Ball) st_.vy *= 0.5f;\n        if (oldMode == Mode::Wave) st_.vy *= 0.5f;\n        if (oldMode == Mode::Ship && st_.holding) st_.buffer = true;\n        st_.mode = Mode::Cube;\n      }\n      break;\n    }'''
+          if old not in s: raise SystemExit('ModeCube anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - name: deadlocked fixed macro diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/pathfinder_diff.py \
+            --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked \
+            --frames 5000 --work /tmp/pf-wave-cube \
+            --macro diagnostics/demons_v7/deadlocked.macro | tee /tmp/diff.log
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/diff.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          tick=int(m.group(1)) if m else 999999
+          pathlib.Path('diagnostics/wave_to_cube_v8.txt').write_text(f'first_divergence={tick}\n'+t)
+          print('WAVE_TO_CUBE_FIRST_DIVERGENCE',tick)
+          if tick <= 893: raise SystemExit(f'no Pathfinder improvement: {tick}')
+          PY
+      - name: promote
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.cpp diagnostics/wave_to_cube_v8.txt
+          git commit -m 'match Pathfinder wave to cube entry velocity'
+          git push
