@@ -1,0 +1,49 @@
+head=c93de28d35fc511c255193345bebbe8344bc02af beam=8192
+===== Clubstep ===== rc=1
+  [beam] tick   6720  best  32.61%  beam  8192
+  [beam] tick   6960  best  33.77%  beam  8192
+  [beam] tick   7200  best  34.94%  beam  8192
+  [beam] tick   7440  best  36.10%  beam  8192
+  [beam] tick   7680  best  37.26%  beam  8192
+  [beam] tick   7920  best  38.43%  beam  8192
+  [beam] tick   8160  best  39.59%  beam  8192
+partial  progress 40.47%  suffix_frames 8343  total_frames 8343  expanded 55920k  12.8s  verify 40.47%
+macro -> diagnostics/demons_v8_fast/clubstep.macro
+  +106 -107 +114 -115 +152 -153 +155 -156 +159 -160 +161 -162 +164 -165 +173 -174 +191 -192 +208 -210 +245 -246 +252 -253 +254 -258 +266 -267 +268 -271 +272 -274 +275 -276 +312 -314 +377 -378 +382 -384 ...
+ 8341  ....    360.987   0.500  -0.00     1    0    0    0 587 537 -1 -1 0 1
+ 8342  ....    361.030   0.500  -0.00     1    0    0    0 587 537 -1 -1 0 1
+ 8343  ....    361.073   0.500   0.00     1    1    0    0 587 537 1144 1144 0 1
+ 8344  ....    361.073   0.500   0.00     1    1    0    0 587 537 1144 1144 0 1
+
+===== Theory of Everything 2 ===== rc=1
+  [beam] tick   3120  best  14.62%  beam  8192
+  [beam] tick   3360  best  15.96%  beam  8192
+  [beam] tick   3600  best  17.30%  beam  8192
+  [beam] tick   3840  best  18.64%  beam  3066
+  [beam] tick   4080  best  19.98%  beam  2223
+  [beam] tick   4320  best  21.32%  beam   776
+  [beam] tick   4560  best  22.66%  beam   337
+partial  progress 22.98%  suffix_frames 4619  total_frames 4619  expanded 30630k  8.8s  verify 22.98%
+macro -> diagnostics/demons_v8_fast/toe2.macro
+  +104 -105 +112 -113 +146 -147 +149 -150 +155 -157 +158 -159 +162 -164 +189 -190 +206 -208 +226 -227 +249 -250 +251 -255 +256 -258 +261 -262 +303 -376 +416 -454 +463 -464 +468 -469 +475 -477 +479 -482 ...
+ 4617  ....    221.377   8.235   0.31     0    0    2    0 894 885 -1 -1 0 2
+ 4618  ....    221.431   8.245   0.27     0    0    2    0 894 885 -1 -1 0 2
+ 4619  ....    221.485   8.254   0.27     0    1    2    0 894 885 910 910 0 2
+ 4620  ....    221.485   8.254   0.27     0    1    2    0 894 885 910 910 0 2
+
+===== Deadlocked ===== rc=1
+  [beam] tick   3600  best  13.56%  beam  2336
+  [beam] tick   3840  best  14.88%  beam  1346
+  [beam] tick   4080  best  16.20%  beam   860
+  [beam] tick   4320  best  17.49%  beam  8192
+  [beam] tick   4560  best  18.58%  beam  8192
+  [beam] tick   4800  best  19.67%  beam  8192
+  [beam] tick   5040  best  20.77%  beam  8192
+partial  progress 21.68%  suffix_frames 5242  total_frames 5242  expanded 58453k  21.2s  verify 21.68%
+macro -> diagnostics/demons_v8_fast/deadlocked.macro
+  +142 -143 +152 -153 +179 -180 +187 -192 +193 -196 +197 -198 +200 -203 +204 -207 +210 -211 +244 -246 +262 -263 +276 -277 +285 -288 +290 -292 +294 -296 +314 -315 +316 -317 +343 -455 +553 -554 +559 -577 ...
+ 5240  ....    256.123   5.500  -0.04     1    0    2    0 804 1295 1807 -1 0 2
+ 5241  ....    256.177   5.500  -0.04     1    0    2    0 804 1295 1807 -1 0 2
+ 5242  ....    256.231   5.500   0.00     1    1    2    0 804 1295 1807 1807 0 2
+ 5243  ....    256.231   5.500   0.00     1    1    2    0 804 1295 1807 1807 0 2
+
