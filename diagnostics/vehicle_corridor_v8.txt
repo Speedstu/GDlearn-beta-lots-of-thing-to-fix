@@ -1,4 +1,4 @@
-tested_head=fcf2295465c02fd3c77fd28e2c28223d4666f417
+tested_head=e5d31f2312579b3a46177246d75b90edd4436030
 patch_rc=1
 configure_rc=99
 build_rc=99
@@ -6,6 +6,4 @@ selftest_rc=99
 diff_rc=99
 first_divergence=-1
 
-Traceback (most recent call last):
-  File "<stdin>", line 3, in <module>
-ValueError: substring not found
+patcher surgery markers missing a=-1 b=1267
