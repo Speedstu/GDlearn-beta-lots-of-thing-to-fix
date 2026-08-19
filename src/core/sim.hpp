@@ -39,8 +39,14 @@ struct State {
   bool won = false;
 
   inline float gdir() const { return flip ? -1.0f : 1.0f; }
-  inline float halfW() const { return phys::HITBOX_CUBE * (mini ? phys::MINI_SCALE : 1.0f); }
-  inline float halfH() const { return phys::HITBOX_CUBE * (mini ? phys::MINI_SCALE : 1.0f); }
+  inline float halfW() const {
+    const float base = mode == Mode::Wave ? 5.0f : phys::HITBOX_CUBE;
+    return base * (mini ? phys::MINI_SCALE : 1.0f);
+  }
+  inline float halfH() const {
+    const float base = mode == Mode::Wave ? 5.0f : phys::HITBOX_CUBE;
+    return base * (mini ? phys::MINI_SCALE : 1.0f);
+  }
 };
 static_assert(sizeof(State) <= 64, "keep State cache-friendly");
 
