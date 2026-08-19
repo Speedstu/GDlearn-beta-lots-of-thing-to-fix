@@ -1,0 +1,35 @@
+name: current classic Pathfinder diff v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/current_classic_diff_v8.yml]
+permissions: {contents: write}
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ccdv8 diagnostics
+          : > diagnostics/current_classic_diff_v8.txt
+          run_one() {
+            KEY="$1"; NUM="$2"; NAME="$3"; FRAMES="$4"
+            echo "===== $NAME =====" | tee -a diagnostics/current_classic_diff_v8.txt
+            python3 tools/pathfinder_diff.py --bin ./build/gdlearn --gmd "levels/${NUM}.gmd" --name "$NAME" --frames "$FRAMES" --work "/tmp/ccdv8/$KEY" --macro "diagnostics/demons_v7/${KEY}.macro" | tee "/tmp/ccdv8/$KEY.log"
+            grep -E '^(FIRST_DIVERGENCE|FRAMES|PATHFINDER_REF)' "/tmp/ccdv8/$KEY.log" | tee -a diagnostics/current_classic_diff_v8.txt
+          }
+          run_one clubstep 14 Clubstep 10000
+          run_one toe2 18 'Theory of Everything 2' 10000
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/current_classic_diff_v8.txt
+          git commit -m 'record current Clubstep ToE2 Pathfinder diff v8' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
