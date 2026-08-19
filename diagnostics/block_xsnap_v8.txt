@@ -1,0 +1,114 @@
+tested_head=8c52a5745113edce6fc88c37dbdf35dcff775746
+patch_rc=0
+configure_rc=0
+build_rc=0
+selftest_rc=0
+diff_rc=0
+first_divergence=1004
+
+block X-snap patch applied
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (0.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/build
+[  8%] Building CXX object CMakeFiles/gdlearn.dir/src/app/main.cpp.o
+[ 16%] Building CXX object CMakeFiles/gdlearn.dir/src/core/level.cpp.o
+[ 25%] Building CXX object CMakeFiles/gdlearn.dir/src/core/sim.cpp.o
+[ 33%] Building CXX object CMakeFiles/gdlearn.dir/src/env/env.cpp.o
+[ 41%] Building CXX object CMakeFiles/gdlearn.dir/src/env/obs.cpp.o
+[ 50%] Building CXX object CMakeFiles/gdlearn.dir/src/io/macro.cpp.o
+[ 58%] Building CXX object CMakeFiles/gdlearn.dir/src/nn/net.cpp.o
+[ 66%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/curriculum.cpp.o
+[ 75%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/policy_runner.cpp.o
+[ 83%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/ppo.cpp.o
+[ 91%] Building CXX object CMakeFiles/gdlearn.dir/src/search/beam.cpp.o
+[100%] Linking CXX executable gdlearn
+[100%] Built target gdlearn
+gdlearn2 selftest
+  [ ok ] idle run finishes a flat level
+  [ ok ] press produces a jump
+  [ ok ] cube lands again
+       airtime = 104 frames
+  [ ok ] flipped cube is never clamped by flight corridor ceiling
+  [ ok ] inverted ship never teleports below floor from remote ceiling
+  [ ok ] simulator is deterministic
+  [ ok ] state snapshot round-trips
+  [ ok ] observation encoder is clean
+       obs dim = 848
+  [ ok ] net trains without exploding
+  [ ok ] net saves
+  [ ok ] net loads
+  [ ok ] loaded net matches saved net
+  [ ok ] macro round-trips
+       beam: solved=0 progress=38.4% verify=38.4%
+  [ ok ] beam search makes real progress
+  [ ok ] macro replay matches the search
+
+all checks passed
++ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py levels/14.gmd -o /tmp/pf-xsnap/level.gdl --name Clubstep
+levels/14.gmd -> /tmp/pf-xsnap/level.gdl: 3651 gameplay objects
++ fixed macro /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v8_fast/clubstep.macro -> /tmp/pf-xsnap/policy.macro
++ ./build/gdlearn trace /tmp/pf-xsnap/level.gdl --macro /tmp/pf-xsnap/policy.macro --frames 12000
++ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pf-xsnap/pathfinder
+Cloning into '/tmp/pf-xsnap/pathfinder'...
+PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
++ cmake -S /tmp/pf-xsnap/pathfinder/gd-sim -B /tmp/pf-xsnap/pf-build -DCMAKE_BUILD_TYPE=Release
++ cmake --build /tmp/pf-xsnap/pf-build -j2
+/tmp/pf-xsnap/pathfinder/gd-sim/src/Vehicle.cpp: In static member function ‘static Vehicle Vehicle::from(VehicleType)’:
+/tmp/pf-xsnap/pathfinder/gd-sim/src/Vehicle.cpp:393:1: warning: control reaches end of non-void function [-Wreturn-type]
+  393 | }
+      | ^
+/tmp/pf-xsnap/pathfinder/gd-sim/src/Vehicle.cpp: In static member function ‘static Vehicle Vehicle::from(VehicleType)’:
+/tmp/pf-xsnap/pathfinder/gd-sim/src/Vehicle.cpp:393:1: warning: control reaches end of non-void function [-Wreturn-type]
+  393 | }
+      | ^
++ g++ -O2 -std=c++20 /tmp/pf-xsnap/ref.cpp -I/tmp/pf-xsnap/pathfinder/gd-sim/include /tmp/pf-xsnap/pf-build/libgd-sim.a -o /tmp/pf-xsnap/ref
++ /tmp/pf-xsnap/ref /tmp/pf-xsnap/level.txt /tmp/pf-xsnap/actions.txt
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v8_fast/clubstep.macro
+FIRST_DIVERGENCE (1004, (1304.76, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0), (1304.15, 105.0, 0.0, 0, 0, 1, 0, 0, 1), (0.6099999999999, 0.0, 0.0))
+GD_WINDOW x y vy mode flip ground dead mini tier hold action
+996 (1294.3500000000001, 125.85000000000001, -2.73, 0, 0, 0, 0, 0, 1, 0) 0
+997 (1295.67, 123.12, -2.78, 0, 0, 0, 0, 0, 1, 0) 0
+998 (1296.96, 120.35999999999999, -2.83, 0, 0, 0, 0, 0, 1, 0) 0
+999 (1298.25, 117.50999999999999, -2.88, 0, 0, 0, 0, 0, 1, 0) 0
+1000 (1299.54, 114.63000000000001, -2.93, 0, 0, 0, 0, 0, 1, 0) 0
+1001 (1300.8600000000001, 111.72, -2.98, 0, 0, 0, 0, 0, 1, 0) 0
+1002 (1302.15, 108.72, -3.02, 0, 0, 0, 0, 0, 1, 0) 0
+1003 (1303.44, 105.72, -3.07, 0, 0, 0, 0, 0, 1, 0) 0
+1004 (1304.76, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1005 (1306.05, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1006 (1307.3400000000001, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1007 (1308.63, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1008 (1309.95, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1009 (1311.24, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1010 (1312.53, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1011 (1313.82, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+1012 (1315.14, 105.0, -0.0, 0, 0, 1, 0, 0, 1, 0) 0
+REF_WINDOW x y vy mode flip ground dead mini tier action
+996 (1294.36, 125.863, -2.7333, 0, 0, 0, 0, 0, 1) 0
+997 (1295.66, 123.13, -2.7819, 0, 0, 0, 0, 0, 1) 0
+998 (1296.96, 120.348, -2.8305, 0, 0, 0, 0, 0, 1) 0
+999 (1298.25, 117.518, -2.8791, 0, 0, 0, 0, 0, 1) 0
+1000 (1299.55, 114.638, -2.9277, 0, 0, 0, 0, 0, 1) 0
+1001 (1300.85, 111.711, -2.9763, 0, 0, 0, 0, 0, 1) 0
+1002 (1302.15, 108.734, -3.0249, 0, 0, 0, 0, 0, 1) 0
+1003 (1303.45, 105.71, -3.0735, 0, 0, 0, 0, 0, 1) 0
+1004 (1304.15, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1005 (1305.45, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1006 (1306.75, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1007 (1308.05, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1008 (1309.34, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1009 (1310.64, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1010 (1311.94, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1011 (1313.24, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+1012 (1314.54, 105.0, 0.0, 0, 0, 1, 0, 0, 1) 0
+FRAMES {'gd': 2717, 'pathfinder': 1318, 'actions': 8343}
