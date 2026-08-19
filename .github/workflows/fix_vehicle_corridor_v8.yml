@@ -1,4 +1,4 @@
-# robust v8b corridor rerun
+# robust v8c corridor rerun
 name: fix vehicle portal corridor v8
 on:
   push:
@@ -18,8 +18,31 @@ jobs:
           set +e
           mkdir -p diagnostics
           : >/tmp/corridor.log
-          python3 tools/apply_vehicle_corridor_v8b.py >>/tmp/corridor.log 2>&1
-          PATCH_RC=$?; CONFIGURE_RC=99; BUILD_RC=99; SELFTEST_RC=99; DIFF_RC=99; TICK=-1
+          # v8b's only stale anchor is the formatting of main.cpp's semantic
+          # equality. Remove that source-text patch, run the physics patcher,
+          # then add the equality fields against the exact current source.
+          python3 - <<'PY' >>/tmp/corridor.log 2>&1
+          from pathlib import Path
+          p=Path('tools/apply_vehicle_corridor_v8b.py'); s=p.read_text()
+          a=s.index('# Semantic deterministic state equality.')
+          b=s.index('# Replace the inferred-from-solids flight corridor')
+          p.write_text(s[:a]+s[b:])
+          PY
+          PREP_RC=$?
+          if [ "$PREP_RC" -eq 0 ]; then python3 tools/apply_vehicle_corridor_v8b.py >>/tmp/corridor.log 2>&1; else false; fi
+          PATCH_RC=$?
+          if [ "$PATCH_RC" -eq 0 ]; then
+            python3 - <<'PY' >>/tmp/corridor.log 2>&1
+          from pathlib import Path
+          p=Path('src/app/main.cpp'); s=p.read_text()
+          old='''      sa.speed==sb.speed && sa.frame==sb.frame && sa.lastOrbUid==sb.lastOrbUid &&'''
+          new='''      sa.speed==sb.speed && sa.flightFloor==sb.flightFloor &&\n      sa.flightCeiling==sb.flightCeiling && sa.frame==sb.frame && sa.lastOrbUid==sb.lastOrbUid &&'''
+          if old not in s: raise SystemExit('current selftest equality anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+            PATCH_RC=$?
+          fi
+          CONFIGURE_RC=99; BUILD_RC=99; SELFTEST_RC=99; DIFF_RC=99; TICK=-1
           if [ "$PATCH_RC" -eq 0 ]; then cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >>/tmp/corridor.log 2>&1; CONFIGURE_RC=$?; fi
           if [ "$CONFIGURE_RC" -eq 0 ]; then cmake --build build -j2 >>/tmp/corridor.log 2>&1; BUILD_RC=$?; fi
           if [ "$BUILD_RC" -eq 0 ]; then ./build/gdlearn selftest >>/tmp/corridor.log 2>&1; SELFTEST_RC=$?; fi
