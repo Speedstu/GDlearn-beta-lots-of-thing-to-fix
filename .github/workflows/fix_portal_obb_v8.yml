@@ -1,3 +1,4 @@
+# observable rerun 2026-08-19
 name: fix portal OBB v8
 on:
   push:
@@ -11,34 +12,65 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
-      - name: apply exact portal rotation
-        run: python3 tools/apply_portal_obb_v8.py
-      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build -j2
-      - run: ./build/gdlearn selftest
-      - name: deadlocked fixed macro Pathfinder diff
+      - name: test and persist result
         shell: bash
         run: |
-          set -euo pipefail
-          python3 tools/pathfinder_diff.py \
-            --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked \
-            --frames 5000 --work /tmp/pf-portal-obb \
-            --macro diagnostics/demons_v7/deadlocked.macro | tee /tmp/diff.log
-          python3 - <<'PY'
+          set +e
+          mkdir -p diagnostics
+          : > /tmp/obb.log
+          echo '=== PATCH ===' | tee -a /tmp/obb.log
+          python3 tools/apply_portal_obb_v8.py >>/tmp/obb.log 2>&1
+          PATCH_RC=$?
+          echo "PATCH_RC=$PATCH_RC" | tee -a /tmp/obb.log
+          CONFIGURE_RC=99; BUILD_RC=99; SELFTEST_RC=99; DIFF_RC=99; TICK=-1
+          if [ "$PATCH_RC" -eq 0 ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >>/tmp/obb.log 2>&1
+            CONFIGURE_RC=$?; echo "CONFIGURE_RC=$CONFIGURE_RC" | tee -a /tmp/obb.log
+          fi
+          if [ "$CONFIGURE_RC" -eq 0 ]; then
+            cmake --build build -j2 >>/tmp/obb.log 2>&1
+            BUILD_RC=$?; echo "BUILD_RC=$BUILD_RC" | tee -a /tmp/obb.log
+          fi
+          if [ "$BUILD_RC" -eq 0 ]; then
+            ./build/gdlearn selftest >>/tmp/obb.log 2>&1
+            SELFTEST_RC=$?; echo "SELFTEST_RC=$SELFTEST_RC" | tee -a /tmp/obb.log
+          fi
+          if [ "$SELFTEST_RC" -eq 0 ]; then
+            python3 tools/pathfinder_diff.py \
+              --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked \
+              --frames 5000 --work /tmp/pf-portal-obb \
+              --macro diagnostics/demons_v7/deadlocked.macro >>/tmp/obb.log 2>&1
+            DIFF_RC=$?; echo "DIFF_RC=$DIFF_RC" | tee -a /tmp/obb.log
+            TICK=$(python3 - <<'PY'
           import pathlib,re
-          t=pathlib.Path('/tmp/diff.log').read_text()
-          m=re.search(r'FIRST_DIVERGENCE \((\d+),', t)
-          tick=int(m.group(1)) if m else 999999
-          pathlib.Path('diagnostics/portal_obb_v8.txt').write_text(f'first_divergence={tick}\n'+t)
-          print('PORTAL_OBB_FIRST_DIVERGENCE',tick)
-          if tick <= 867:
-              raise SystemExit(f'portal OBB did not improve Pathfinder alignment: {tick}')
+          t=pathlib.Path('/tmp/obb.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          print(int(m.group(1)) if m else 999999)
           PY
-      - name: promote
-        shell: bash
-        run: |
+            )
+          fi
+          {
+            echo "tested_head=$GITHUB_SHA"
+            echo "patch_rc=$PATCH_RC"
+            echo "configure_rc=$CONFIGURE_RC"
+            echo "build_rc=$BUILD_RC"
+            echo "selftest_rc=$SELFTEST_RC"
+            echo "diff_rc=$DIFF_RC"
+            echo "first_divergence=$TICK"
+            echo
+            cat /tmp/obb.log
+          } > diagnostics/portal_obb_v8.txt
+          cat diagnostics/portal_obb_v8.txt
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/core/level.hpp src/core/level.cpp src/core/sim.cpp tools/gmd_to_gdl.py diagnostics/portal_obb_v8.txt
-          git commit -m 'preserve exact portal rotation with OBB collision'
+          git add diagnostics/portal_obb_v8.txt
+          if [ "$PATCH_RC" -eq 0 ] && [ "$CONFIGURE_RC" -eq 0 ] && [ "$BUILD_RC" -eq 0 ] && [ "$SELFTEST_RC" -eq 0 ] && [ "$DIFF_RC" -eq 0 ] && [ "$TICK" -gt 867 ]; then
+            git add src/core/level.hpp src/core/level.cpp src/core/sim.cpp tools/gmd_to_gdl.py
+            git commit -m 'preserve exact portal rotation with OBB collision'
+          else
+            git checkout -- src/core/level.hpp src/core/level.cpp src/core/sim.cpp tools/gmd_to_gdl.py
+            git add diagnostics/portal_obb_v8.txt
+            git commit -m 'record failed portal OBB experiment' || true
+          fi
           git push
+          exit 0
