@@ -1,3 +1,4 @@
+# concurrency-safe diagnostics push
 name: fresh demons v8
 on:
   push:
@@ -51,7 +52,8 @@ jobs:
           run_one 20 Deadlocked deadlocked
           cat diagnostics/fresh_demons_v8.txt
           git config user.name 'github-actions[bot]'
-          git config user.email '41898282+users.noreply.github.com'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add diagnostics/fresh_demons_v8.txt diagnostics/demons_v8/*.macro
           git commit -m 'record fresh v8 official demon solves' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
           git push
