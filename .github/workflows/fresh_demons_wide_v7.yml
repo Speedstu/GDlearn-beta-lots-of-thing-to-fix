@@ -1,3 +1,4 @@
+# rerun on current corrected head 2026-08-19
 name: Fresh demon wide benchmark v7
 on:
   push:
