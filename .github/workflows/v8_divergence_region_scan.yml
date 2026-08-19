@@ -1,0 +1,26 @@
+name: v8 divergence region scan
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/v8_divergence_region_scan.yml]
+permissions: {contents: write}
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics/v8_regions
+          python3 tools/inspect_gmd_region.py levels/14.gmd --x 1305 --radius 240 > diagnostics/v8_regions/clubstep_x1305.txt
+          python3 tools/inspect_gmd_region.py levels/18.gmd --x 1969 --radius 260 > diagnostics/v8_regions/toe2_x1969.txt
+          python3 tools/inspect_gmd_region.py levels/20.gmd --x 992 --radius 220 > diagnostics/v8_regions/deadlocked_x992.txt
+          grep -E '(^x | portal|speed|  200 |  201 |  202 |  203 | 1334)' diagnostics/v8_regions/*.txt || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/v8_regions
+          git commit -m 'record raw regions at v8 Pathfinder divergences' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
