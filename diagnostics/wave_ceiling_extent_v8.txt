@@ -1,0 +1,113 @@
+tested_head=1c8b68d1f54c02c4fd0d8c58b5f947d37b6c75f1
+patch_rc=0
+configure_rc=0
+build_rc=0
+selftest_rc=0
+diff_rc=0
+first_divergence=763
+
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (2.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/build
+[  8%] Building CXX object CMakeFiles/gdlearn.dir/src/app/main.cpp.o
+[ 16%] Building CXX object CMakeFiles/gdlearn.dir/src/core/level.cpp.o
+[ 25%] Building CXX object CMakeFiles/gdlearn.dir/src/core/sim.cpp.o
+[ 33%] Building CXX object CMakeFiles/gdlearn.dir/src/env/env.cpp.o
+[ 41%] Building CXX object CMakeFiles/gdlearn.dir/src/env/obs.cpp.o
+[ 50%] Building CXX object CMakeFiles/gdlearn.dir/src/io/macro.cpp.o
+[ 58%] Building CXX object CMakeFiles/gdlearn.dir/src/nn/net.cpp.o
+[ 66%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/curriculum.cpp.o
+[ 75%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/policy_runner.cpp.o
+[ 83%] Building CXX object CMakeFiles/gdlearn.dir/src/rl/ppo.cpp.o
+[ 91%] Building CXX object CMakeFiles/gdlearn.dir/src/search/beam.cpp.o
+[100%] Linking CXX executable gdlearn
+[100%] Built target gdlearn
+gdlearn2 selftest
+  [ ok ] idle run finishes a flat level
+  [ ok ] press produces a jump
+  [ ok ] cube lands again
+       airtime = 104 frames
+  [ ok ] flipped cube is never clamped by flight corridor ceiling
+  [ ok ] inverted ship never teleports below floor from remote ceiling
+  [ ok ] simulator is deterministic
+  [ ok ] state snapshot round-trips
+  [ ok ] observation encoder is clean
+       obs dim = 848
+  [ ok ] net trains without exploding
+  [ ok ] net saves
+  [ ok ] net loads
+  [ ok ] loaded net matches saved net
+  [ ok ] macro round-trips
+       beam: solved=0 progress=38.4% verify=38.4%
+  [ ok ] beam search makes real progress
+  [ ok ] macro replay matches the search
+
+all checks passed
++ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py levels/20.gmd -o /tmp/pf-wave-ceil/level.gdl --name Deadlocked
+levels/20.gmd -> /tmp/pf-wave-ceil/level.gdl: 5814 gameplay objects
++ fixed macro /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v8_fast/deadlocked.macro -> /tmp/pf-wave-ceil/policy.macro
++ ./build/gdlearn trace /tmp/pf-wave-ceil/level.gdl --macro /tmp/pf-wave-ceil/policy.macro --frames 12000
++ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pf-wave-ceil/pathfinder
+Cloning into '/tmp/pf-wave-ceil/pathfinder'...
+PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
++ cmake -S /tmp/pf-wave-ceil/pathfinder/gd-sim -B /tmp/pf-wave-ceil/pf-build -DCMAKE_BUILD_TYPE=Release
++ cmake --build /tmp/pf-wave-ceil/pf-build -j2
+/tmp/pf-wave-ceil/pathfinder/gd-sim/src/Vehicle.cpp: In static member function ‘static Vehicle Vehicle::from(VehicleType)’:
+/tmp/pf-wave-ceil/pathfinder/gd-sim/src/Vehicle.cpp:393:1: warning: control reaches end of non-void function [-Wreturn-type]
+  393 | }
+      | ^
+/tmp/pf-wave-ceil/pathfinder/gd-sim/src/Vehicle.cpp: In static member function ‘static Vehicle Vehicle::from(VehicleType)’:
+/tmp/pf-wave-ceil/pathfinder/gd-sim/src/Vehicle.cpp:393:1: warning: control reaches end of non-void function [-Wreturn-type]
+  393 | }
+      | ^
++ g++ -O2 -std=c++20 /tmp/pf-wave-ceil/ref.cpp -I/tmp/pf-wave-ceil/pathfinder/gd-sim/include /tmp/pf-wave-ceil/pf-build/libgd-sim.a -o /tmp/pf-wave-ceil/ref
++ /tmp/pf-wave-ceil/ref /tmp/pf-wave-ceil/level.txt /tmp/pf-wave-ceil/actions.txt
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v8_fast/deadlocked.macro
+FIRST_DIVERGENCE (763, (991.8599999999999, 294.69, -2.6, 4, 0, 0, 0, 1, 1, 0), (991.873, 294.0, -2.5965, 4, 0, 0, 0, 1, 1), (0.013000000000147338, 0.6899999999999977, 0.0035000000000002807))
+GD_WINDOW x y vy mode flip ground dead mini tier hold action
+755 (981.48, 273.93, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+756 (982.8, 276.54, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+757 (984.0899999999999, 279.12, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+758 (985.3799999999999, 281.73, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+759 (986.6700000000001, 284.31, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+760 (987.99, 286.92, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+761 (989.28, 289.5, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+762 (990.5699999999999, 292.11, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
+763 (991.8599999999999, 294.69, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+764 (993.1800000000001, 292.11, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+765 (994.47, 289.5, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+766 (995.76, 286.92, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+767 (997.0799999999999, 284.31, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+768 (998.3700000000001, 281.73, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+769 (999.6600000000001, 279.12, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+770 (1000.95, 276.54, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+771 (1002.27, 273.93, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
+REF_WINDOW x y vy mode flip ground dead mini tier action
+755 (981.487, 273.933, 2.5965, 4, 0, 0, 0, 1, 1) 1
+756 (982.785, 276.53, 2.5965, 4, 0, 0, 0, 1, 1) 1
+757 (984.083, 279.126, 2.5965, 4, 0, 0, 0, 1, 1) 1
+758 (985.382, 281.723, 2.5965, 4, 0, 0, 0, 1, 1) 1
+759 (986.68, 284.319, 2.5965, 4, 0, 0, 0, 1, 1) 1
+760 (987.978, 286.915, 2.5965, 4, 0, 0, 0, 1, 1) 1
+761 (989.277, 289.512, 2.5965, 4, 0, 0, 0, 1, 1) 1
+762 (990.575, 292.108, 2.5965, 4, 0, 0, 0, 1, 1) 1
+763 (991.873, 294.0, -2.5965, 4, 0, 0, 0, 1, 1) 0
+764 (993.171, 291.404, -2.5965, 4, 0, 0, 0, 1, 1) 0
+765 (994.47, 288.807, -2.5965, 4, 0, 0, 0, 1, 1) 0
+766 (995.768, 286.211, -2.5965, 4, 0, 0, 0, 1, 1) 0
+767 (997.066, 283.614, -2.5965, 4, 0, 0, 0, 1, 1) 0
+768 (998.365, 281.018, -2.5965, 4, 0, 0, 0, 1, 1) 0
+769 (999.663, 278.421, -2.5965, 4, 0, 0, 0, 1, 1) 0
+770 (1000.96, 275.825, -2.5965, 4, 0, 0, 0, 1, 1) 0
+771 (1002.26, 273.228, -2.5965, 4, 0, 0, 0, 1, 1) 0
+FRAMES {'gd': 5244, 'pathfinder': 788, 'actions': 5242}
