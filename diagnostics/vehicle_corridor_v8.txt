@@ -1,4 +1,4 @@
-tested_head=b8d260a03cd87baa3876d12cc3c755de38a2d69b
+tested_head=fcf2295465c02fd3c77fd28e2c28223d4666f417
 patch_rc=1
 configure_rc=99
 build_rc=99
@@ -6,4 +6,6 @@ selftest_rc=99
 diff_rc=99
 first_divergence=-1
 
-anchor missing src/app/main.cpp: '      sa.x==sb.x && sa.y==sb.y && sa.vy==sb.vy && sa.rotation==sb.rotation &&\n      sa.speed==sb.speed && sa.frame==sb.f'
+Traceback (most recent call last):
+  File "<stdin>", line 3, in <module>
+ValueError: substring not found
