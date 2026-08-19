@@ -360,7 +360,7 @@ int cmdGen(const Args& a) {
 int cmdSolve(const Args& a) {
   if (a.pos.empty()) {
     std::printf("usage: gdlearn solve <level.gdl> [--beam N] [--policy run-dir] "
-                "[--prior-weight X] [--out macro]\n");
+                "[--prior-weight X] [--prefix-macro file] [--prefix-back ticks] [--out macro]\n");
     return 2;
   }
   Level lv = Level::loadGdl(a.pos[0]);
@@ -390,6 +390,30 @@ int cmdSolve(const Args& a) {
                 guide.schemaMagic().c_str(), o.priorWeight);
   }
 
+  std::vector<uint8_t> fixedPrefix;
+  if (a.has("prefix-macro")) {
+    Macro pm;
+    const std::string prefixPath = a.str("prefix-macro");
+    if (!Macro::load(prefixPath, &pm)) {
+      std::printf("cannot load prefix macro: %s\n", prefixPath.c_str());
+      return 2;
+    }
+    const int back = std::max(0, a.num("prefix-back", phys::ticks(2.0f)));
+    const int cut = std::max(0, static_cast<int>(pm.holds.size()) - back);
+    Sim prefixSim(&lv);
+    for (int i = 0; i < cut; ++i) {
+      if (!prefixSim.step(pm.holds[static_cast<size_t>(i)] != 0)) {
+        std::printf("prefix macro dies before checkpoint at tick %d\n", i);
+        return 2;
+      }
+    }
+    fixedPrefix.assign(pm.holds.begin(), pm.holds.begin() + cut);
+    o.hasStart = true;
+    o.start = prefixSim.state();
+    std::printf("segment checkpoint: tick %d/%zu  progress %.2f%%  back %d ticks\n",
+                cut, pm.holds.size(), prefixSim.progress() * 100.0f, back);
+  }
+
   const auto t0 = std::chrono::steady_clock::now();
   SolveResult r = beamSolve(lv, o);
   const double sec = std::chrono::duration<double>(
@@ -405,20 +429,23 @@ int cmdSolve(const Args& a) {
     if (r2.progress > r.progress) r = r2;
   }
 
-  VerifyResult v = verifyMacro(lv, r.holds);
+  std::vector<uint8_t> fullHolds = fixedPrefix;
+  fullHolds.insert(fullHolds.end(), r.holds.begin(), r.holds.end());
+  VerifyResult v = verifyMacro(lv, fullHolds);
   std::printf(
-      "%s  progress %.2f%%  frames %d  expanded %lldk  %.1fs  verify %.2f%%\n",
-      r.solved ? "SOLVED" : "partial", r.progress * 100.0f, r.frames,
-      static_cast<long long>(r.expanded / 1000), sec, v.progress * 100.0f);
+      "%s  progress %.2f%%  suffix_frames %d  total_frames %zu  expanded %lldk  %.1fs  verify %.2f%%\n",
+      v.solved ? "SOLVED" : "partial", v.progress * 100.0f, r.frames,
+      fullHolds.size(), static_cast<long long>(r.expanded / 1000), sec,
+      v.progress * 100.0f);
 
   const std::string out = a.str("out", a.pos[0] + ".macro");
   Macro m;
   m.level = lv.name;
   m.progress = v.progress;
-  m.holds = r.holds;
+  m.holds = std::move(fullHolds);
   if (m.save(out)) std::printf("macro -> %s\n  %s\n", out.c_str(),
                                m.summary().c_str());
-  return r.solved ? 0 : 1;
+  return v.solved ? 0 : 1;
 }
 
 int cmdTrain(const Args& a) {
