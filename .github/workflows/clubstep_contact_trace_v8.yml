@@ -1,0 +1,33 @@
+name: Clubstep contact trace v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/clubstep_contact_trace_v8.yml]
+permissions: {contents: write}
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          python3 tools/gmd_to_gdl.py levels/14.gmd -o /tmp/clubstep.gdl --name Clubstep >/dev/null
+          ./build/gdlearn trace /tmp/clubstep.gdl --macro diagnostics/demons_v8_fast/clubstep.macro --from 800 --frames 1010 > /tmp/trace.txt
+          {
+            echo 'frame hold x y vy ground contact death'
+            awk 'NR==1 || ($1>=800 && ($6==1 || $12!=-1)) {print}' /tmp/trace.txt
+            echo '--- landing window ---'
+            awk '$1>=970 && $1<=1006 {print}' /tmp/trace.txt
+          } > diagnostics/clubstep_contact_trace_v8.txt
+          cat diagnostics/clubstep_contact_trace_v8.txt
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/clubstep_contact_trace_v8.txt
+          git commit -m 'record Clubstep support-contact history' || true
+          git pull --rebase origin agent/gdlearn2-physics-v6
+          git push
