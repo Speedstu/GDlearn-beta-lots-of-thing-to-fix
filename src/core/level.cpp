@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -36,10 +37,16 @@ void Level::finalize() {
     return;
   }
   // Gameplay length = a bit past the last thing that can kill or carry you.
+  auto worldXExtent = [](const Object& o) {
+    if (std::fabs(o.rotation) < 1e-6f) return o.hw;
+    const float r = o.rotation * 3.14159265358979323846f / 180.0f;
+    return std::fabs(std::cos(r)) * o.hw + std::fabs(std::sin(r)) * o.hh;
+  };
   float maxX = 0, minX = 0;
   bool first = true;
   for (const Object& o : objs_) {
-    float l = o.x - o.hw, r = o.x + o.hw;
+    const float ex = worldXExtent(o);
+    float l = o.x - ex, r = o.x + ex;
     if (first) { minX = l; maxX = r; first = false; }
     minX = std::min(minX, l);
     maxX = std::max(maxX, r);
@@ -51,8 +58,9 @@ void Level::finalize() {
   std::vector<int32_t> counts(nb, 0);
   auto span = [&](const Object& o, int* lo, int* hi) {
     // Pad by one bucket on both sides so a query only ever needs ONE bucket.
-    *lo = static_cast<int>((o.x - o.hw - minX_) / kBucket) - 1;
-    *hi = static_cast<int>((o.x + o.hw - minX_) / kBucket) + 1;
+    const float ex = worldXExtent(o);
+    *lo = static_cast<int>((o.x - ex - minX_) / kBucket) - 1;
+    *hi = static_cast<int>((o.x + ex - minX_) / kBucket) + 1;
     *lo = std::max(*lo, 0);
     *hi = std::min(*hi, nb - 1);
   };
@@ -98,6 +106,7 @@ Level Level::loadGdl(const std::string& path) {
       Object o;
       int sub = 0, id = 0;
       ss >> kind >> sub >> o.x >> o.y >> o.hw >> o.hh >> id;
+      if (!(ss >> o.rotation)) o.rotation = 0.0f;
       o.kind = kindFromName(kind);
       o.sub = static_cast<uint8_t>(sub);
       o.id = static_cast<int16_t>(id);
@@ -118,7 +127,7 @@ void Level::saveGdl(const std::string& path) const {
   for (const Object& o : objs_) {
     out << "o " << kKindNames[static_cast<int>(o.kind)] << " "
         << static_cast<int>(o.sub) << " " << o.x << " " << o.y << " " << o.hw
-        << " " << o.hh << " " << o.id << "\n";
+        << " " << o.hh << " " << o.id << " " << o.rotation << "\n";
   }
 }
 

@@ -95,6 +95,7 @@ class GdlObject:
     hw: float
     hh: float
     oid: int
+    rotation: float = 0.0
 
 
 def _f(props: Dict[int, str], key: int, default: float) -> float:
@@ -184,14 +185,10 @@ def classify(props: Dict[int, str]) -> Optional[GdlObject]:
             pw, ph = 15.5, 45.0
         else:
             pw, ph = 12.0, 45.0
-        # Pathfinder/GD rotates the portal collision rectangle with the object.
-        # Keeping 90-degree portals vertical makes their trigger volume far too
-        # tall (ToE2 ID11 at x=2295 fires ~8 ticks early).  The current .gdl
-        # format is axis-aligned, so preserve exact cardinal rotations and use
-        # the conservative rotated AABB for non-cardinal cases until OBB data is
-        # represented explicitly in the core format.
-        pw, ph = _rotated_half_extents(pw * sx, ph * sy, rot)
-        return GdlObject('portal', PORTALS[oid], x, y, pw, ph, oid)
+        # Preserve the local rectangle plus exact GD rotation. Object.cpp in
+        # Pathfinder stores the negated property-6 angle. The C++ simulator now
+        # performs SAT instead of inflating oblique portals into a fake AABB.
+        return GdlObject('portal', PORTALS[oid], x, y, pw * sx, ph * sy, oid, -rot)
     if oid in SPEEDS:
         dims = {200:(17.5,22.0), 201:(16.5,28.0), 202:(25.5,28.0),
                 203:(32.5,28.0), 1334:(34.5,28.0)}
@@ -260,16 +257,16 @@ def convert(level_string: str, name: str = 'level', hitbox_dump: Optional[str] =
     for o in objects:
         lines.append(
             f'o {o.kind} {o.sub} {o.x:.6g} {o.y:.6g} '
-            f'{o.hw:.6g} {o.hh:.6g} {o.oid}'
+            f'{o.hw:.6g} {o.hh:.6g} {o.oid} {o.rotation:.6g}'
         )
     text = '\n'.join(lines) + '\n'
 
     if hitbox_dump:
         os.makedirs(os.path.dirname(os.path.abspath(hitbox_dump)), exist_ok=True)
         with open(hitbox_dump, 'w', encoding='utf-8') as fh:
-            fh.write('kind,sub,x,y,hw,hh,id\n')
+            fh.write('kind,sub,x,y,hw,hh,id,rotation\n')
             for o in objects:
-                fh.write(f'{o.kind},{o.sub},{o.x},{o.y},{o.hw},{o.hh},{o.oid}\n')
+                fh.write(f'{o.kind},{o.sub},{o.x},{o.y},{o.hw},{o.hh},{o.oid},{o.rotation}\n')
     return text, len(objects)
 
 

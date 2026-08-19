@@ -13,6 +13,27 @@ inline bool aabb(float ax, float ay, float ahw, float ahh, float bx, float by,
   return std::fabs(ax - bx) < (ahw + bhw) && std::fabs(ay - by) < (ahh + bhh);
 }
 
+inline bool obbOverlap(float ax, float ay, float ahw, float ahh, float aDeg,
+                       float bx, float by, float bhw, float bhh, float bDeg) {
+  constexpr float k = 3.14159265358979323846f / 180.0f;
+  const float ar=aDeg*k, br=bDeg*k;
+  const float ac=std::cos(ar), as=std::sin(ar);
+  const float bc=std::cos(br), bs=std::sin(br);
+  const float au[2]={ac,as}, av[2]={-as,ac};
+  const float bu[2]={bc,bs}, bv[2]={-bs,bc};
+  const float d[2]={bx-ax,by-ay};
+  const float axes[4][2]={{au[0],au[1]},{av[0],av[1]},
+                          {bu[0],bu[1]},{bv[0],bv[1]}};
+  auto dot=[](const float* p,const float* q){return p[0]*q[0]+p[1]*q[1];};
+  for (const auto& L: axes) {
+    const float dist=std::fabs(d[0]*L[0]+d[1]*L[1]);
+    const float ra=ahw*std::fabs(dot(au,L))+ahh*std::fabs(dot(av,L));
+    const float rb=bhw*std::fabs(dot(bu,L))+bhh*std::fabs(dot(bv,L));
+    if (dist > ra + rb) return false;
+  }
+  return true;
+}
+
 // Pathfinder Entity::intersects treats edge contact as an intersection. Keep
 // the strict helper for effects/hazards, but use this inclusive version for
 // block contact so a cube resting exactly on a surface remains grounded.
@@ -319,7 +340,14 @@ void Sim::resolveWorld(const State& prev) {
   for (int i = 0; i < n; ++i) {
     const Object& o = objs[idx[i]];
     if (o.kind == Kind::Portal || o.kind == Kind::Speed) {
-      if (aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)) applyPortal(o);
+      const float mod90 = std::fmod(std::fabs(o.rotation), 90.0f);
+      const bool cardinal = mod90 < 1e-4f || std::fabs(mod90 - 90.0f) < 1e-4f;
+      const float playerRot = cardinal ? 0.0f : st_.rotation;
+      const bool touching = std::fabs(o.rotation) < 1e-6f
+          ? aabb(st_.x, st_.y, hw, hh, o.x, o.y, o.hw, o.hh)
+          : obbOverlap(st_.x, st_.y, hw, hh, playerRot,
+                       o.x, o.y, o.hw, o.hh, o.rotation);
+      if (touching) applyPortal(o);
     }
   }
 

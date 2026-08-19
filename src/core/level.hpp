@@ -35,7 +35,8 @@ enum class PortalKind : uint8_t {
 
 struct Object {
   float x = 0, y = 0;         // centre, units
-  float hw = 15, hh = 15;     // half extents after scale/rotation
+  float hw = 15, hh = 15;     // local half extents after scale
+  float rotation = 0;         // degrees; 0 for legacy .gdl objects
   Kind kind = Kind::Solid;
   uint8_t sub = 0;            // PadKind / OrbKind / PortalKind / speed tier
   int16_t id = 0;             // original GD object id (debug / round-trip)
