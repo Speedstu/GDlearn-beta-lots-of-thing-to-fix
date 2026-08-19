@@ -1,51 +1,11 @@
-first_divergence=893
-+ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py levels/20.gmd -o /tmp/pf-portal-obb/level.gdl --name Deadlocked
-levels/20.gmd -> /tmp/pf-portal-obb/level.gdl: 5814 gameplay objects
-+ fixed macro /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v7/deadlocked.macro -> /tmp/pf-portal-obb/policy.macro
-+ ./build/gdlearn trace /tmp/pf-portal-obb/level.gdl --macro /tmp/pf-portal-obb/policy.macro --frames 5000
-+ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/pf-portal-obb/pathfinder
-PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
-+ cmake -S /tmp/pf-portal-obb/pathfinder/gd-sim -B /tmp/pf-portal-obb/pf-build -DCMAKE_BUILD_TYPE=Release
-+ cmake --build /tmp/pf-portal-obb/pf-build -j2
-+ g++ -O2 -std=c++20 /tmp/pf-portal-obb/ref.cpp -I/tmp/pf-portal-obb/pathfinder/gd-sim/include /tmp/pf-portal-obb/pf-build/libgd-sim.a -o /tmp/pf-portal-obb/ref
-+ /tmp/pf-portal-obb/ref /tmp/pf-portal-obb/level.txt /tmp/pf-portal-obb/actions.txt
-PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
-MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v7/deadlocked.macro
-FIRST_DIVERGENCE (893, (1160.64, 127.8, -2.65, 0, 0, 0, 0, 0, 1, 1), (1160.64, 127.802, -0.6327, 0, 0, 0, 0, 0, 1), (0.0, 0.0020000000000095497, 2.0172999999999996))
-GD_WINDOW x y vy mode flip ground dead mini tier hold action
-885 (1150.26, 127.8, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
-886 (1151.55, 130.41000000000003, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
-887 (1152.84, 127.8, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
-888 (1154.16, 130.41000000000003, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
-889 (1155.45, 132.99, 2.6, 4, 0, 0, 0, 1, 1, 1) 1
-890 (1156.74, 135.6, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
-891 (1158.06, 132.99, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
-892 (1159.3500000000001, 130.41000000000003, -2.6, 4, 0, 0, 0, 1, 1, 0) 0
-893 (1160.64, 127.8, -2.65, 0, 0, 0, 0, 0, 1, 1) 1
-894 (1161.93, 125.16, -2.69, 0, 0, 0, 0, 0, 1, 1) 1
-895 (1163.25, 122.46, -2.74, 0, 0, 0, 0, 0, 1, 0) 0
-896 (1164.54, 119.73, -2.79, 0, 0, 0, 0, 0, 1, 0) 0
-897 (1165.83, 116.94, -2.84, 0, 0, 0, 0, 0, 1, 1) 1
-898 (1167.1200000000001, 114.09, -2.89, 0, 0, 0, 0, 0, 1, 0) 0
-899 (1168.44, 111.21, -2.94, 0, 0, 0, 0, 0, 1, 1) 1
-900 (1169.73, 108.27, -2.99, 0, 0, 0, 0, 0, 1, 1) 1
-901 (1171.02, 105.27, -3.03, 0, 0, 0, 0, 0, 1, 1) 1
-REF_WINDOW x y vy mode flip ground dead mini tier action
-885 (1150.26, 127.802, 2.5965, 4, 0, 0, 0, 1, 1) 1
-886 (1151.56, 130.398, -2.5965, 4, 0, 0, 0, 1, 1) 0
-887 (1152.85, 127.802, 2.5965, 4, 0, 0, 0, 1, 1) 1
-888 (1154.15, 130.398, 2.5965, 4, 0, 0, 0, 1, 1) 1
-889 (1155.45, 132.995, 2.5965, 4, 0, 0, 0, 1, 1) 1
-890 (1156.75, 135.591, -2.5965, 4, 0, 0, 0, 1, 1) 0
-891 (1158.05, 132.995, -2.5965, 4, 0, 0, 0, 1, 1) 0
-892 (1159.34, 130.398, -2.5965, 4, 0, 0, 0, 1, 1) 0
-893 (1160.64, 127.802, -0.6327, 0, 0, 0, 0, 0, 1) 1
-894 (1161.94, 127.169, -0.6813, 0, 0, 0, 0, 0, 1) 1
-895 (1163.24, 126.488, -0.7299, 0, 0, 0, 0, 0, 1) 0
-896 (1164.54, 125.758, -0.7785, 0, 0, 0, 0, 0, 1) 0
-897 (1165.84, 124.98, -0.8271, 0, 0, 0, 0, 0, 1) 1
-898 (1167.13, 124.152, -0.8757, 0, 0, 0, 0, 0, 1) 0
-899 (1168.43, 123.277, -0.9243, 0, 0, 0, 0, 0, 1) 1
-900 (1169.73, 122.352, -0.9729, 0, 0, 0, 0, 0, 1) 1
-901 (1171.03, 121.38, -1.0215, 0, 0, 0, 0, 0, 1) 1
-FRAMES {'gd': 1021, 'pathfinder': 1022, 'actions': 3653}
+tested_head=d8f75b66b21b505c34be4b282962a9600bc77de4
+patch_rc=1
+configure_rc=99
+build_rc=99
+selftest_rc=99
+diff_rc=99
+first_divergence=-1
+
+=== PATCH ===
+anchor missing in src/core/level.hpp: '  float x = 0, y = 0;         // centre, units\n  float hw = 15, hh = 15;     // '
+PATCH_RC=1
