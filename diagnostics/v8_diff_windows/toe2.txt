@@ -1,0 +1,50 @@
++ /usr/bin/python3 /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/tools/gmd_to_gdl.py levels/18.gmd -o /tmp/v8dw/toe2/level.gdl --name Theory of Everything 2
+levels/18.gmd -> /tmp/v8dw/toe2/level.gdl: 4245 gameplay objects
++ fixed macro /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v8_fast/toe2.macro -> /tmp/v8dw/toe2/policy.macro
++ ./build/gdlearn trace /tmp/v8dw/toe2/level.gdl --macro /tmp/v8dw/toe2/policy.macro --frames 12000
++ git clone --depth 1 https://github.com/camila314/pathfinder /tmp/v8dw/toe2/pathfinder
+PATHFINDER_CHECKOUT 4597a9bce113eaabea65c60a9c7adc9324409457
++ cmake -S /tmp/v8dw/toe2/pathfinder/gd-sim -B /tmp/v8dw/toe2/pf-build -DCMAKE_BUILD_TYPE=Release
++ cmake --build /tmp/v8dw/toe2/pf-build -j2
++ g++ -O2 -std=c++20 /tmp/v8dw/toe2/ref.cpp -I/tmp/v8dw/toe2/pathfinder/gd-sim/include /tmp/v8dw/toe2/pf-build/libgd-sim.a -o /tmp/v8dw/toe2/ref
++ /tmp/v8dw/toe2/ref /tmp/v8dw/toe2/level.txt /tmp/v8dw/toe2/actions.txt
+PATHFINDER_REF 4597a9bce113eaabea65c60a9c7adc9324409457
+MACRO_SOURCE /home/runner/work/GDlearn-beta-lots-of-thing-to-fix/GDlearn-beta-lots-of-thing-to-fix/diagnostics/demons_v8_fast/toe2.macro
+FIRST_DIVERGENCE (1515, (1968.12, 165.0, 2.52, 0, 0, 0, 0, 0, 1, 1), (1969.13, 165.0, 2.5155, 0, 0, 0, 0, 0, 1), (1.0100000000002183, 0.0, 0.0045000000000001705))
+GD_WINDOW x y vy mode flip ground dead mini tier hold action
+1507 (1957.7399999999998, 177.35999999999999, -1.47, 0, 0, 0, 0, 0, 1, 0) 0
+1508 (1959.0600000000002, 175.89000000000001, -1.52, 0, 0, 0, 0, 0, 1, 0) 0
+1509 (1960.35, 174.36, -1.57, 0, 0, 0, 0, 0, 1, 0) 0
+1510 (1961.64, 172.79999999999998, -1.62, 0, 0, 0, 0, 0, 1, 0) 0
+1511 (1962.9299999999998, 171.18, -1.66, 0, 0, 0, 0, 0, 1, 0) 0
+1512 (1964.2499999999998, 169.53, -1.71, 0, 0, 0, 0, 0, 1, 0) 0
+1513 (1965.54, 167.82000000000002, -1.76, 0, 0, 0, 0, 0, 1, 0) 0
+1514 (1966.8300000000002, 166.05, -1.81, 0, 0, 0, 0, 0, 1, 1) 1
+1515 (1968.12, 165.0, 2.52, 0, 0, 0, 0, 0, 1, 1) 1
+1516 (1969.4399999999998, 167.51999999999998, 2.47, 0, 0, 0, 0, 0, 1, 0) 0
+1517 (1970.73, 169.98000000000002, 2.42, 0, 0, 0, 0, 0, 1, 0) 0
+1518 (1972.0199999999998, 172.41, 2.37, 0, 0, 0, 0, 0, 1, 0) 0
+1519 (1973.3400000000001, 174.78, 2.32, 0, 0, 0, 0, 0, 1, 0) 0
+1520 (1974.6299999999999, 177.08999999999997, 2.27, 0, 0, 0, 0, 0, 1, 0) 0
+1521 (1975.92, 179.37, 2.22, 0, 0, 0, 0, 0, 1, 0) 0
+1522 (1977.2099999999998, 181.59, 2.18, 0, 0, 0, 0, 0, 1, 0) 0
+1523 (1978.5299999999997, 183.75, 2.13, 0, 0, 0, 0, 0, 1, 0) 0
+REF_WINDOW x y vy mode flip ground dead mini tier action
+1507 (1957.75, 177.355, -1.4697, 0, 0, 0, 0, 0, 1) 0
+1508 (1959.05, 175.885, -1.5183, 0, 0, 0, 0, 0, 1) 0
+1509 (1960.35, 174.367, -1.5669, 0, 0, 0, 0, 0, 1) 0
+1510 (1961.64, 172.8, -1.6155, 0, 0, 0, 0, 0, 1) 0
+1511 (1962.94, 171.185, -1.6641, 0, 0, 0, 0, 0, 1) 0
+1512 (1964.24, 169.52, -1.7127, 0, 0, 0, 0, 0, 1) 0
+1513 (1965.54, 167.808, -1.7613, 0, 0, 0, 0, 0, 1) 0
+1514 (1966.84, 166.046, -1.8099, 0, 0, 0, 0, 0, 1) 1
+1515 (1969.13, 165.0, 2.5155, 0, 0, 0, 0, 0, 1) 1
+1516 (1970.43, 167.516, 2.4669, 0, 0, 0, 0, 0, 1) 0
+1517 (1971.73, 169.982, 2.4183, 0, 0, 0, 0, 0, 1) 0
+1518 (1973.03, 172.401, 2.3697, 0, 0, 0, 0, 0, 1) 0
+1519 (1974.33, 174.77, 2.3211, 0, 0, 0, 0, 0, 1) 0
+1520 (1975.63, 177.092, 2.2725, 0, 0, 0, 0, 0, 1) 0
+1521 (1976.92, 179.364, 2.2239, 0, 0, 0, 0, 0, 1) 0
+1522 (1978.22, 181.588, 2.1753, 0, 0, 0, 0, 0, 1) 0
+1523 (1979.52, 183.763, 2.1267, 0, 0, 0, 0, 0, 1) 0
+FRAMES {'gd': 4621, 'pathfinder': 2796, 'actions': 4619}
