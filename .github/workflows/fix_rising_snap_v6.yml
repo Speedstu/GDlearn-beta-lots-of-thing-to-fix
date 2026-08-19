@@ -1,0 +1,49 @@
+name: fix rising block snap v6
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/fix_rising_snap_v6.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/core/sim.cpp')
+          s=p.read_text()
+          old='if (pen > 0.0f && pen <= hh) {'
+          new='if (falling && pen > 0.0f && pen <= hh) {'
+          if old not in s: raise SystemExit('anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - name: fixed macro diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/pathfinder_diff.py --bin ./build/gdlearn --frames 3000 --work /tmp/pf-rising --macro diagnostics/pathfinder_reference.macro | tee /tmp/diff.log
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/diff.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          tick=int(m.group(1)) if m else -1
+          print('RISING_SNAP_FIRST_DIVERGENCE',tick)
+          pathlib.Path('diagnostics/rising_snap_v6.txt').write_text(f'first_divergence={tick}\n'+t)
+          if tick <= 997: raise SystemExit(f'no improvement: {tick}')
+          PY
+      - name: promote
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.cpp diagnostics/rising_snap_v6.txt
+          git commit -m 'match Pathfinder falling-only block snap'
+          git push
