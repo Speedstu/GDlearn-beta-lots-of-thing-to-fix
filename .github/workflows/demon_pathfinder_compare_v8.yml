@@ -1,0 +1,46 @@
+name: demon Pathfinder compare v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths:
+      - .github/workflows/demon_pathfinder_compare_v8.yml
+      - diagnostics/demons_v8/*.macro
+permissions: {contents: write}
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          for f in diagnostics/demons_v8/clubstep.macro diagnostics/demons_v8/toe2.macro diagnostics/demons_v8/deadlocked.macro; do
+            if [ ! -f "$f" ]; then echo "v8 macros not ready yet"; exit 0; fi
+          done
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build build -j2 >/dev/null
+          ./build/gdlearn selftest >/dev/null
+          mkdir -p /tmp/pfv8 diagnostics/demons_v8
+          : > diagnostics/demons_v8/pathfinder_compare.txt
+          run_one() {
+            KEY="$1"; NUM="$2"; NAME="$3"; FRAMES="$4"
+            echo "===== $NAME ($KEY) =====" | tee -a diagnostics/demons_v8/pathfinder_compare.txt
+            python3 tools/pathfinder_diff.py \
+              --bin ./build/gdlearn --gmd "levels/${NUM}.gmd" --name "$NAME" \
+              --frames "$FRAMES" --work "/tmp/pfv8/${KEY}" \
+              --macro "diagnostics/demons_v8/${KEY}.macro" \
+              | tee "/tmp/pfv8/${KEY}.log"
+            grep -E '^(PATHFINDER_REF|MACRO_SOURCE|FIRST_DIVERGENCE|FRAMES)' "/tmp/pfv8/${KEY}.log" | tee -a diagnostics/demons_v8/pathfinder_compare.txt
+            echo >> diagnostics/demons_v8/pathfinder_compare.txt
+          }
+          run_one clubstep 14 Clubstep 50000
+          run_one toe2 18 'Theory of Everything 2' 50000
+          run_one deadlocked 20 Deadlocked 50000
+          cat diagnostics/demons_v8/pathfinder_compare.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/demons_v8/pathfinder_compare.txt
+          git commit -m 'record v8 demon Pathfinder comparison' || true
+          git push
