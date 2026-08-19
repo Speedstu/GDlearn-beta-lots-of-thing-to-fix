@@ -1,0 +1,51 @@
+name: fix wave hitbox v8
+on:
+  push:
+    branches: [agent/gdlearn2-physics-v6]
+    paths: [.github/workflows/fix_wave_hitbox_v8.yml]
+permissions: {contents: write}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: patch wave dimensions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/core/sim.hpp'); s=p.read_text()
+          old='''  inline float halfW() const { return phys::HITBOX_CUBE * (mini ? phys::MINI_SCALE : 1.0f); }\n  inline float halfH() const { return phys::HITBOX_CUBE * (mini ? phys::MINI_SCALE : 1.0f); }'''
+          new='''  inline float halfW() const {\n    const float base = mode == Mode::Wave ? 5.0f : phys::HITBOX_CUBE;\n    return base * (mini ? phys::MINI_SCALE : 1.0f);\n  }\n  inline float halfH() const {\n    const float base = mode == Mode::Wave ? 5.0f : phys::HITBOX_CUBE;\n    return base * (mini ? phys::MINI_SCALE : 1.0f);\n  }'''
+          if old not in s: raise SystemExit('halfW/H anchor missing')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j2
+      - run: ./build/gdlearn selftest
+      - name: deadlocked fixed macro diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/pathfinder_diff.py \
+            --bin ./build/gdlearn --gmd levels/20.gmd --name Deadlocked \
+            --frames 5000 --work /tmp/pf-wave-hitbox \
+            --macro diagnostics/demons_v7/deadlocked.macro | tee /tmp/diff.log
+          python3 - <<'PY'
+          import pathlib,re
+          t=pathlib.Path('/tmp/diff.log').read_text(); m=re.search(r'FIRST_DIVERGENCE \((\d+),',t)
+          tick=int(m.group(1)) if m else 999999
+          pathlib.Path('diagnostics/wave_hitbox_v8.txt').write_text(f'first_divergence={tick}\n'+t)
+          print('WAVE_HITBOX_FIRST_DIVERGENCE',tick)
+          if tick <= 644: raise SystemExit(f'wave hitbox did not improve Pathfinder alignment: {tick}')
+          PY
+      - name: promote
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/core/sim.hpp diagnostics/wave_hitbox_v8.txt
+          git commit -m 'match Geometry Dash wave 10x10 hitbox'
+          git push
