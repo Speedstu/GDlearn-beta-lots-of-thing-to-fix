@@ -1,0 +1,90 @@
+head=aa1d79777aabf88bca9ccc73df26cd22dbcf467a
+beam=32768 widen=0 max_frames=50000 stall=16000
+
+===== Clubstep (clubstep) =====
+solve_rc=1
+  [beam] tick   5280  best  25.62%  beam    28
+  [beam] tick   5520  best  26.79%  beam 32768
+  [beam] tick   5760  best  27.95%  beam 32768
+  [beam] tick   6000  best  29.12%  beam 32768
+  [beam] tick   6240  best  30.28%  beam 32768
+  [beam] tick   6480  best  31.44%  beam 32768
+  [beam] tick   6720  best  32.61%  beam 32768
+  [beam] tick   6960  best  33.77%  beam 32768
+  [beam] tick   7200  best  34.94%  beam 32768
+  [beam] tick   7440  best  36.10%  beam 32768
+  [beam] tick   7680  best  37.26%  beam 32768
+  [beam] tick   7920  best  38.43%  beam 32768
+  [beam] tick   8160  best  39.59%  beam 32768
+partial  progress 40.47%  suffix_frames 8343  total_frames 8343  expanded 198382k  60.7s  verify 40.47%
+macro -> diagnostics/demons_v8/clubstep.macro
+  +106 -107 +114 -115 +152 -153 +155 -156 +159 -160 +161 -162 +164 -165 +173 -174 +191 -192 +208 -210 +245 -246 +252 -253 +254 -258 +266 -267 +268 -271 +272 -274 +275 -276 +312 -314 +377 -378 +382 -384 ...
+Command exited with non-zero status 1
+wall_s=60.75 maxrss_kb=402676
+--- terminal ---
+ 8338  ....    360.857   0.500  -0.00     1    0    0    0 587 537 -1 -1 0 1
+ 8339  ....    360.900   0.500  -0.00     1    0    0    0 587 537 -1 -1 0 1
+ 8340  ....    360.944   0.500  -0.00     1    0    0    0 587 537 -1 -1 0 1
+ 8341  ....    360.987   0.500  -0.00     1    0    0    0 587 537 -1 -1 0 1
+ 8342  ....    361.030   0.500  -0.00     1    0    0    0 587 537 -1 -1 0 1
+ 8343  ....    361.073   0.500   0.00     1    1    0    0 587 537 1144 1144 0 1
+ 8344  ....    361.073   0.500   0.00     1    1    0    0 587 537 1144 1144 0 1
+
+===== Theory of Everything 2 (toe2) =====
+solve_rc=1
+  [beam] tick   1680  best   7.55%  beam    47
+  [beam] tick   1920  best   8.63%  beam   153
+  [beam] tick   2160  best   9.71%  beam  3659
+  [beam] tick   2400  best  10.79%  beam  5973
+  [beam] tick   2640  best  11.94%  beam 28288
+  [beam] tick   2880  best  13.28%  beam 32768
+  [beam] tick   3120  best  14.62%  beam 32768
+  [beam] tick   3360  best  15.96%  beam 32768
+  [beam] tick   3600  best  17.30%  beam 32768
+  [beam] tick   3840  best  18.64%  beam 20494
+  [beam] tick   4080  best  19.98%  beam 14684
+  [beam] tick   4320  best  21.32%  beam 16474
+  [beam] tick   4560  best  22.66%  beam  3639
+partial  progress 23.02%  suffix_frames 4920  total_frames 4920  expanded 106683k  39.0s  verify 23.02%
+macro -> diagnostics/demons_v8/toe2.macro
+  +104 -105 +112 -113 +146 -147 +149 -150 +155 -157 +158 -159 +162 -164 +189 -190 +206 -208 +226 -227 +249 -250 +251 -255 +256 -258 +261 -262 +303 -376 +416 -454 +463 -464 +468 -469 +475 -477 +479 -482 ...
+Command exited with non-zero status 1
+wall_s=39.00 maxrss_kb=219440
+--- terminal ---
+ 4915  ....    221.587   4.904  -0.78     0    0    2    1 332 901 -1 -1 0 2
+ 4916  ....    221.641   4.878  -0.74     0    0    2    1 332 901 -1 -1 0 2
+ 4917  HOLD    221.695   4.853  -0.69     0    0    2    1 332 901 -1 -1 0 2
+ 4918  ....    221.749   4.830  -0.65     0    0    2    1 332 901 -1 -1 0 2
+ 4919  ....    221.803   4.808  -0.61     0    0    2    1 332 901 -1 -1 0 2
+ 4920  ....    221.856   4.788  -0.61     0    1    2    1 332 901 902 902 0 2
+ 4921  ....    221.856   4.788  -0.61     0    1    2    1 332 901 902 902 0 2
+
+===== Deadlocked (deadlocked) =====
+solve_rc=1
+  [beam] tick   2160  best   7.91%  beam 32768
+  [beam] tick   2400  best   8.79%  beam 32768
+  [beam] tick   2640  best   9.67%  beam 32768
+  [beam] tick   2880  best  10.55%  beam 32768
+  [beam] tick   3120  best  11.43%  beam 32768
+  [beam] tick   3360  best  12.31%  beam 32768
+  [beam] tick   3600  best  13.56%  beam  7604
+  [beam] tick   3840  best  14.88%  beam  4148
+  [beam] tick   4080  best  16.20%  beam  2702
+  [beam] tick   4320  best  17.49%  beam 32768
+  [beam] tick   4560  best  18.58%  beam 32768
+  [beam] tick   4800  best  19.67%  beam 32768
+  [beam] tick   5040  best  20.77%  beam 32768
+partial  progress 21.68%  suffix_frames 5242  total_frames 5242  expanded 213955k  105.2s  verify 21.68%
+macro -> diagnostics/demons_v8/deadlocked.macro
+  +170 -171 +190 -191 +214 -216 +218 -219 +223 -224 +226 -227 +228 -230 +232 -233 +237 -238 +272 -274 +331 -351 +373 -387 +419 -421 +560 -577 +584 -585 +598 -599 +600 -601 +602 -603 +604 -605 +606 -607 ...
+Command exited with non-zero status 1
+wall_s=105.26 maxrss_kb=429244
+--- terminal ---
+ 5237  ....    255.962   5.500  -0.04     1    0    2    0 -1 995 1807 -1 0 2
+ 5238  ....    256.015   5.500  -0.04     1    0    2    0 -1 995 1807 -1 0 2
+ 5239  ....    256.069   5.500  -0.04     1    0    2    0 -1 995 1807 -1 0 2
+ 5240  ....    256.123   5.500  -0.04     1    0    2    0 -1 995 1807 -1 0 2
+ 5241  ....    256.177   5.500  -0.04     1    0    2    0 -1 995 1807 -1 0 2
+ 5242  ....    256.231   5.500   0.00     1    1    2    0 -1 995 1807 1807 0 2
+ 5243  ....    256.231   5.500   0.00     1    1    2    0 -1 995 1807 1807 0 2
+
